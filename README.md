@@ -1,3 +1,7 @@
+<div align="center">
+  <img src="logo.png" alt="Gander Logo" width="25%" />
+</div>
+
 # Gander - High-Performance MITM Proxy
 
 A transparent, high-performance Man-in-the-Middle (MITM) proxy written in Go for selective traffic inspection and logging. Designed for network security monitoring, debugging, and traffic analysis with minimal latency overhead.
