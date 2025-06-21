@@ -51,6 +51,12 @@ test-coverage:
 	go tool cover -html=coverage.out -o coverage.html
 	@echo "Coverage report generated: coverage.html"
 
+# Run benchmarks
+.PHONY: bench
+bench:
+	@echo "Running benchmarks..."
+	go test -bench=. -benchmem ./...
+
 # Format code
 .PHONY: fmt
 fmt:
