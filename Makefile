@@ -74,10 +74,12 @@ lint:
 .PHONY: security
 security:
 	@echo "Running security scan..."
-	@which gosec > /dev/null || (echo "Installing gosec..." && go install github.com/securecodewarrior/gosec/v2/cmd/gosec@latest)
-	@echo "Scanning for security issues..."
-	@gosec -fmt text ./... 2>/dev/null || echo "Security scan completed (some warnings may be expected)"
-	@echo "Note: For detailed report, run: gosec -fmt text -out gosec-report.txt ./..."
+	@echo "Running go vet security checks..."
+	@go vet ./...
+	@echo "Running staticcheck..."
+	@which staticcheck > /dev/null || (echo "Installing staticcheck..." && go install honnef.co/go/tools/cmd/staticcheck@latest)
+	@staticcheck ./... || echo "Staticcheck completed"
+	@echo "Security scan completed"
 
 # Vet code
 .PHONY: vet

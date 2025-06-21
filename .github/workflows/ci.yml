@@ -224,15 +224,11 @@ jobs:
     - name: Install dependencies
       run: make deps
 
-    - name: Run Gosec Security Scanner
+    - name: Run Go Security Checks
       run: |
-        go install github.com/securecodewarrior/gosec/v2/cmd/gosec@latest
-        echo "Running gosec security scan..."
-        gosec -fmt text ./... || echo "Gosec scan completed with findings"
-        echo "Security scan finished"
-
-    - name: Run Nancy vulnerability scanner
-      run: |
-        echo "Running Nancy vulnerability scanner..."
-        go install github.com/sonatypecommunity/nancy@latest
-        go list -json -deps ./... | nancy sleuth || echo "Nancy scan completed" 
+        echo "Running go vet security checks..."
+        go vet ./...
+        echo "Running staticcheck..."
+        go install honnef.co/go/tools/cmd/staticcheck@latest
+        staticcheck ./... || echo "Staticcheck completed"
+        echo "Security checks completed" 

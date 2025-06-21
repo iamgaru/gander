@@ -13,8 +13,7 @@ benchmark-results.txt
 current_changelog.md
 
 # Security reports
-gosec-report.txt
-gosec-results.sarif
+staticcheck-report.txt
 
 # IDE and editor files
 .vscode/
