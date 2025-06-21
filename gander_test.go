@@ -1,9 +1,7 @@
 package main
 
 import (
-	"encoding/json"
-	"io/ioutil"
-	"net"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -12,47 +10,36 @@ import (
 
 // Test configuration loading
 func TestLoadConfig(t *testing.T) {
-	// Create a temporary config file
-	tempDir := t.TempDir()
-	configFile := filepath.Join(tempDir, "test_config.json")
-
-	testConfig := Config{
-		Proxy: struct {
-			ListenAddr   string `json:"listen_addr"`
-			Transparent  bool   `json:"transparent"`
-			ExplicitPort int    `json:"explicit_port"`
-			BufferSize   int    `json:"buffer_size"`
-			ReadTimeout  int    `json:"read_timeout_seconds"`
-			WriteTimeout int    `json:"write_timeout_seconds"`
-		}{
-			ListenAddr:   ":8080",
-			Transparent:  true,
-			ExplicitPort: 3128,
-			BufferSize:   0, // Should get default
-			ReadTimeout:  0, // Should get default
-			WriteTimeout: 0, // Should get default
+	// Create temporary config file
+	configFile := filepath.Join(t.TempDir(), "config.json")
+	configData := `{
+		"proxy": {
+			"listen_addr": "127.0.0.1:8080",
+			"transparent": false,
+			"buffer_size": 32768,
+			"read_timeout_seconds": 30,
+			"write_timeout_seconds": 30
 		},
-		Logging: struct {
-			LogFile     string `json:"log_file"`
-			CaptureDir  string `json:"capture_dir"`
-			MaxFileSize int64  `json:"max_file_size_mb"`
-			EnableDebug bool   `json:"enable_debug"`
-		}{
-			LogFile:     "test.log",
-			CaptureDir:  "test_captures",
-			MaxFileSize: 0, // Should get default
-			EnableDebug: false,
+		"logging": {
+			"log_file": "/tmp/mitm.log",
+			"capture_dir": "/tmp/captures",
+			"max_file_size_mb": 100,
+			"enable_debug": true
 		},
-	}
+		"rules": {
+			"inspect_domains": ["example.com"],
+			"inspect_source_ips": ["192.168.1.100"]
+		},
+		"tls": {
+			"cert_dir": "certs",
+			"auto_generate": true,
+			"valid_days": 365
+		}
+	}`
 
-	data, err := json.MarshalIndent(testConfig, "", "  ")
+	err := os.WriteFile(configFile, []byte(configData), 0644)
 	if err != nil {
-		t.Fatalf("Failed to marshal test config: %v", err)
-	}
-
-	err = ioutil.WriteFile(configFile, data, 0644)
-	if err != nil {
-		t.Fatalf("Failed to write test config: %v", err)
+		t.Fatalf("Failed to create config file: %v", err)
 	}
 
 	// Test loading the config
@@ -88,14 +75,11 @@ func TestLoadConfig(t *testing.T) {
 }
 
 // Test loading invalid config
-func TestLoadConfigInvalid(t *testing.T) {
-	tempDir := t.TempDir()
-	configFile := filepath.Join(tempDir, "invalid_config.json")
-
-	// Write invalid JSON
-	err := ioutil.WriteFile(configFile, []byte("invalid json"), 0644)
+func TestLoadConfigInvalidJSON(t *testing.T) {
+	configFile := filepath.Join(t.TempDir(), "config.json")
+	err := os.WriteFile(configFile, []byte("invalid json"), 0644)
 	if err != nil {
-		t.Fatalf("Failed to write invalid config: %v", err)
+		t.Fatalf("Failed to create config file: %v", err)
 	}
 
 	_, err = loadConfig(configFile)
@@ -506,16 +490,6 @@ func BenchmarkShouldInspect(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		proxy.shouldInspect("192.168.1.100", "example.com")
 	}
-}
-
-// Test helper function to check if a port is available
-func isPortAvailable(port int) bool {
-	ln, err := net.Listen("tcp", net.JoinHostPort("localhost", string(rune(port))))
-	if err != nil {
-		return false
-	}
-	ln.Close()
-	return true
 }
 
 // Integration test - start proxy server briefly

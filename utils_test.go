@@ -317,16 +317,16 @@ func TestBufferPool(t *testing.T) {
 	}
 
 	// Test buffer pool functionality
-	buffer := proxy.bufferPool.Get().([]byte)
+	buffer := *proxy.bufferPool.Get().(*[]byte)
 	if len(buffer) != 1024 {
 		t.Errorf("Expected buffer size 1024, got %d", len(buffer))
 	}
 
 	// Return buffer to pool
-	proxy.bufferPool.Put(buffer)
+	proxy.bufferPool.Put(&buffer)
 
 	// Get another buffer (should be the same one due to pooling)
-	buffer2 := proxy.bufferPool.Get().([]byte)
+	buffer2 := *proxy.bufferPool.Get().(*[]byte)
 	if len(buffer2) != 1024 {
 		t.Errorf("Expected buffer size 1024, got %d", len(buffer2))
 	}

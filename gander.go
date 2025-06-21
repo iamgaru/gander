@@ -3,17 +3,10 @@ package main
 import (
 	"bufio"
 	"bytes"
-	"crypto/rand"
-	"crypto/rsa"
-	"crypto/tls"
-	"crypto/x509"
-	"crypto/x509/pkix"
 	"encoding/json"
-	"encoding/pem"
 	"fmt"
 	"io"
 	"log"
-	"math/big"
 	"net"
 	"os"
 	"path/filepath"
@@ -69,10 +62,6 @@ type ProxyServer struct {
 	bufferPool     *sync.Pool
 	stats          *ProxyStats
 	mutex          sync.RWMutex
-	certCache      map[string]*tls.Certificate
-	certMutex      sync.RWMutex
-	caCert         *x509.Certificate
-	caKey          *rsa.PrivateKey
 }
 
 // Connection statistics
@@ -188,7 +177,8 @@ func NewProxyServer(config *Config) (*ProxyServer, error) {
 	// Buffer pool for performance
 	bufferPool := &sync.Pool{
 		New: func() interface{} {
-			return make([]byte, config.Proxy.BufferSize)
+			buf := make([]byte, config.Proxy.BufferSize)
+			return &buf
 		},
 	}
 
@@ -201,187 +191,7 @@ func NewProxyServer(config *Config) (*ProxyServer, error) {
 		logFile:        logFile,
 		bufferPool:     bufferPool,
 		stats:          &ProxyStats{},
-		certCache:      make(map[string]*tls.Certificate),
 	}, nil
-}
-
-// Load CA certificate and key
-func (ps *ProxyServer) loadCA() error {
-	// Create cert directory if it doesn't exist
-	if err := os.MkdirAll(ps.config.TLS.CertDir, 0755); err != nil {
-		return err
-	}
-
-	// Load CA certificate
-	caCertData, err := os.ReadFile(ps.config.TLS.CAFile)
-	if err != nil {
-		return fmt.Errorf("failed to read CA certificate: %v", err)
-	}
-
-	caCertBlock, _ := pem.Decode(caCertData)
-	if caCertBlock == nil {
-		return fmt.Errorf("failed to decode CA certificate")
-	}
-
-	ps.caCert, err = x509.ParseCertificate(caCertBlock.Bytes)
-	if err != nil {
-		return fmt.Errorf("failed to parse CA certificate: %v", err)
-	}
-
-	// Load CA private key
-	caKeyData, err := os.ReadFile(ps.config.TLS.CAKeyFile)
-	if err != nil {
-		return fmt.Errorf("failed to read CA private key: %v", err)
-	}
-
-	caKeyBlock, _ := pem.Decode(caKeyData)
-	if caKeyBlock == nil {
-		return fmt.Errorf("failed to decode CA private key")
-	}
-
-	caKeyInterface, err := x509.ParsePKCS1PrivateKey(caKeyBlock.Bytes)
-	if err != nil {
-		// Try PKCS8 format
-		caKeyInterface2, err2 := x509.ParsePKCS8PrivateKey(caKeyBlock.Bytes)
-		if err2 != nil {
-			return fmt.Errorf("failed to parse CA private key: %v", err)
-		}
-		var ok bool
-		ps.caKey, ok = caKeyInterface2.(*rsa.PrivateKey)
-		if !ok {
-			return fmt.Errorf("CA private key is not RSA")
-		}
-	} else {
-		ps.caKey = caKeyInterface
-	}
-
-	log.Printf("Loaded CA certificate: %s", ps.caCert.Subject.CommonName)
-	return nil
-}
-
-// Generate certificate for domain
-func (ps *ProxyServer) generateCertificate(domain string) (*tls.Certificate, error) {
-	// Generate private key
-	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
-	if err != nil {
-		return nil, err
-	}
-
-	// Create certificate template
-	template := x509.Certificate{
-		SerialNumber: big.NewInt(time.Now().Unix()),
-		Subject: pkix.Name{
-			CommonName:   domain,
-			Organization: []string{"MITM Proxy"},
-		},
-		DNSNames:              []string{domain},
-		NotBefore:             time.Now(),
-		NotAfter:              time.Now().AddDate(0, 0, ps.config.TLS.ValidDays),
-		KeyUsage:              x509.KeyUsageKeyEncipherment | x509.KeyUsageDigitalSignature,
-		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
-		BasicConstraintsValid: true,
-	}
-
-	// Handle wildcard domains
-	if strings.HasPrefix(domain, "*.") {
-		template.DNSNames = append(template.DNSNames, domain[2:])
-	}
-
-	// Create certificate
-	certDER, err := x509.CreateCertificate(rand.Reader, &template, ps.caCert, &privateKey.PublicKey, ps.caKey)
-	if err != nil {
-		return nil, err
-	}
-
-	// Create TLS certificate
-	cert := &tls.Certificate{
-		Certificate: [][]byte{certDER, ps.caCert.Raw},
-		PrivateKey:  privateKey,
-	}
-
-	// Save certificate to disk if auto-generate is enabled
-	if ps.config.TLS.AutoGenerate {
-		ps.saveCertificate(domain, cert)
-	}
-
-	return cert, nil
-}
-
-// Save certificate to disk
-func (ps *ProxyServer) saveCertificate(domain string, cert *tls.Certificate) {
-	certFile := filepath.Join(ps.config.TLS.CertDir, domain+".crt")
-	keyFile := filepath.Join(ps.config.TLS.CertDir, domain+".key")
-
-	// Save certificate
-	certOut, err := os.Create(certFile)
-	if err != nil {
-		log.Printf("Failed to create cert file for %s: %v", domain, err)
-		return
-	}
-	defer certOut.Close()
-
-	pem.Encode(certOut, &pem.Block{Type: "CERTIFICATE", Bytes: cert.Certificate[0]})
-
-	// Save private key
-	keyOut, err := os.Create(keyFile)
-	if err != nil {
-		log.Printf("Failed to create key file for %s: %v", domain, err)
-		return
-	}
-	defer keyOut.Close()
-
-	privateKey := cert.PrivateKey.(*rsa.PrivateKey)
-	pem.Encode(keyOut, &pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(privateKey)})
-
-	log.Printf("Saved certificate for %s", domain)
-}
-
-// Get or generate certificate for domain
-func (ps *ProxyServer) getCertificate(domain string) (*tls.Certificate, error) {
-	ps.certMutex.RLock()
-	if cert, exists := ps.certCache[domain]; exists {
-		ps.certMutex.RUnlock()
-		return cert, nil
-	}
-	ps.certMutex.RUnlock()
-
-	ps.certMutex.Lock()
-	defer ps.certMutex.Unlock()
-
-	// Double-check after acquiring write lock
-	if cert, exists := ps.certCache[domain]; exists {
-		return cert, nil
-	}
-
-	// Try to load from disk first
-	certFile := filepath.Join(ps.config.TLS.CertDir, domain+".crt")
-	keyFile := filepath.Join(ps.config.TLS.CertDir, domain+".key")
-
-	if _, err := os.Stat(certFile); err == nil {
-		if _, err := os.Stat(keyFile); err == nil {
-			cert, err := tls.LoadX509KeyPair(certFile, keyFile)
-			if err == nil {
-				ps.certCache[domain] = &cert
-				return &cert, nil
-			}
-		}
-	}
-
-	// Generate new certificate
-	cert, err := ps.generateCertificate(domain)
-	if err != nil {
-		return nil, err
-	}
-
-	ps.certCache[domain] = cert
-	return cert, nil
-}
-
-// Extract original destination for transparent proxy
-func getOriginalDestination(conn net.Conn) (string, error) {
-	// This is a simplified version - in production you'd use SO_ORIGINAL_DST
-	// For now, we'll extract from SNI or Host header
-	return "", fmt.Errorf("transparent mode requires iptables configuration")
 }
 
 // Extract SNI from TLS ClientHello
@@ -486,8 +296,12 @@ func (ps *ProxyServer) logConnection(info *ConnectionInfo) {
 		info.Inspected,
 		info.Captured)
 
-	ps.logFile.WriteString(logLine)
-	ps.logFile.Sync()
+	if _, err := ps.logFile.WriteString(logLine); err != nil {
+		log.Printf("Failed to write to log file: %v", err)
+	}
+	if err := ps.logFile.Sync(); err != nil {
+		log.Printf("Failed to sync log file: %v", err)
+	}
 }
 
 // Parse HTTP request
@@ -592,7 +406,9 @@ func (ps *ProxyServer) relayFast(dst, src net.Conn, buffer []byte, counter *int6
 	defer src.Close()
 
 	for {
-		src.SetReadDeadline(time.Now().Add(time.Duration(ps.config.Proxy.ReadTimeout) * time.Second))
+		if err := src.SetReadDeadline(time.Now().Add(time.Duration(ps.config.Proxy.ReadTimeout) * time.Second)); err != nil {
+			return
+		}
 		n, err := src.Read(buffer)
 		if err != nil {
 			return
@@ -600,9 +416,10 @@ func (ps *ProxyServer) relayFast(dst, src net.Conn, buffer []byte, counter *int6
 
 		*counter += int64(n)
 
-		dst.SetWriteDeadline(time.Now().Add(time.Duration(ps.config.Proxy.WriteTimeout) * time.Second))
-		_, err = dst.Write(buffer[:n])
-		if err != nil {
+		if err := dst.SetWriteDeadline(time.Now().Add(time.Duration(ps.config.Proxy.WriteTimeout) * time.Second)); err != nil {
+			return
+		}
+		if _, err = dst.Write(buffer[:n]); err != nil {
 			return
 		}
 	}
@@ -614,7 +431,9 @@ func (ps *ProxyServer) relayWithInspection(dst, src net.Conn, buffer []byte, cou
 	defer src.Close()
 
 	for {
-		src.SetReadDeadline(time.Now().Add(time.Duration(ps.config.Proxy.ReadTimeout) * time.Second))
+		if err := src.SetReadDeadline(time.Now().Add(time.Duration(ps.config.Proxy.ReadTimeout) * time.Second)); err != nil {
+			return
+		}
 		n, err := src.Read(buffer)
 		if err != nil {
 			return
@@ -627,9 +446,10 @@ func (ps *ProxyServer) relayWithInspection(dst, src net.Conn, buffer []byte, cou
 			ps.inspectHTTP(buffer[:n], clientIP, domain)
 		}
 
-		dst.SetWriteDeadline(time.Now().Add(time.Duration(ps.config.Proxy.WriteTimeout) * time.Second))
-		_, err = dst.Write(buffer[:n])
-		if err != nil {
+		if err := dst.SetWriteDeadline(time.Now().Add(time.Duration(ps.config.Proxy.WriteTimeout) * time.Second)); err != nil {
+			return
+		}
+		if _, err = dst.Write(buffer[:n]); err != nil {
 			return
 		}
 	}
@@ -654,12 +474,16 @@ func (ps *ProxyServer) handleConnection(clientConn net.Conn) {
 
 	// Peek at first packet
 	peekBuffer := make([]byte, 4096)
-	clientConn.SetReadDeadline(time.Now().Add(5 * time.Second))
+	if err := clientConn.SetReadDeadline(time.Now().Add(5 * time.Second)); err != nil {
+		return
+	}
 	n, err := clientConn.Read(peekBuffer)
 	if err != nil {
 		return
 	}
-	clientConn.SetReadDeadline(time.Time{})
+	if err := clientConn.SetReadDeadline(time.Time{}); err != nil {
+		return
+	}
 
 	// Extract destination info
 	var domain, serverAddr string
@@ -721,17 +545,21 @@ func (ps *ProxyServer) handleConnection(clientConn net.Conn) {
 
 	// If explicit proxy mode, send 200 OK for CONNECT
 	if !ps.config.Proxy.Transparent && bytes.HasPrefix(peekBuffer[:n], []byte("CONNECT ")) {
-		clientConn.Write([]byte("HTTP/1.1 200 Connection established\r\n\r\n"))
+		if _, err := clientConn.Write([]byte("HTTP/1.1 200 Connection established\r\n\r\n")); err != nil {
+			return
+		}
 	} else {
 		// Forward the peeked data
-		serverConn.Write(peekBuffer[:n])
+		if _, err := serverConn.Write(peekBuffer[:n]); err != nil {
+			return
+		}
 	}
 
 	// Get buffers from pool
-	buffer1 := ps.bufferPool.Get().([]byte)
-	buffer2 := ps.bufferPool.Get().([]byte)
-	defer ps.bufferPool.Put(buffer1)
-	defer ps.bufferPool.Put(buffer2)
+	buffer1 := *ps.bufferPool.Get().(*[]byte)
+	buffer2 := *ps.bufferPool.Get().(*[]byte)
+	defer ps.bufferPool.Put(&buffer1)
+	defer ps.bufferPool.Put(&buffer2)
 
 	// Start bidirectional relay
 	done := make(chan bool, 2)
@@ -829,14 +657,6 @@ func main() {
 	proxy, err := NewProxyServer(config)
 	if err != nil {
 		log.Fatalf("Error creating proxy: %v", err)
-	}
-
-	// Load CA certificate if TLS inspection is enabled
-	if config.TLS.CAFile != "" && config.TLS.CAKeyFile != "" {
-		err = proxy.loadCA()
-		if err != nil {
-			log.Fatalf("Error loading CA: %v", err)
-		}
 	}
 
 	// Start stats reporter

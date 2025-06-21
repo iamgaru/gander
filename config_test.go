@@ -2,7 +2,7 @@ package main
 
 import (
 	"encoding/json"
-	"io/ioutil"
+	"os"
 	"path/filepath"
 	"testing"
 )
@@ -77,7 +77,7 @@ func TestConfigValidation(t *testing.T) {
 				t.Fatalf("Failed to marshal config: %v", err)
 			}
 
-			err = ioutil.WriteFile(configFile, data, 0644)
+			err = os.WriteFile(configFile, data, 0644)
 			if err != nil {
 				t.Fatalf("Failed to write config: %v", err)
 			}
@@ -161,7 +161,7 @@ func TestConfigRules(t *testing.T) {
 		t.Fatalf("Failed to marshal config: %v", err)
 	}
 
-	err = ioutil.WriteFile(configFile, data, 0644)
+	err = os.WriteFile(configFile, data, 0644)
 	if err != nil {
 		t.Fatalf("Failed to write config: %v", err)
 	}
@@ -238,7 +238,7 @@ func TestTLSConfig(t *testing.T) {
 		t.Fatalf("Failed to marshal config: %v", err)
 	}
 
-	err = ioutil.WriteFile(configFile, data, 0644)
+	err = os.WriteFile(configFile, data, 0644)
 	if err != nil {
 		t.Fatalf("Failed to write config: %v", err)
 	}
@@ -305,7 +305,7 @@ func TestMalformedConfigs(t *testing.T) {
 			tempDir := t.TempDir()
 			configFile := filepath.Join(tempDir, "test_config.json")
 
-			err := ioutil.WriteFile(configFile, []byte(test.content), 0644)
+			err := os.WriteFile(configFile, []byte(test.content), 0644)
 			if err != nil {
 				t.Fatalf("Failed to write config: %v", err)
 			}
@@ -352,7 +352,7 @@ func BenchmarkLoadConfig(b *testing.B) {
 		b.Fatalf("Failed to marshal config: %v", err)
 	}
 
-	err = ioutil.WriteFile(configFile, data, 0644)
+	err = os.WriteFile(configFile, data, 0644)
 	if err != nil {
 		b.Fatalf("Failed to write config: %v", err)
 	}
