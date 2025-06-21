@@ -58,7 +58,7 @@ jobs:
         echo "changelog_file=current_changelog.md" >> $GITHUB_OUTPUT
 
     - name: Create GitHub Release
-      uses: softprops/action-gh-release@v1
+      uses: softprops/action-gh-release@v2
       with:
         body_path: ${{ steps.changelog.outputs.changelog_file }}
         files: |
