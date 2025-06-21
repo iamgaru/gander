@@ -4,6 +4,12 @@
 
 # Gander - High-Performance MITM Proxy
 
+[![CI](https://github.com/iamgaru/gander/workflows/CI/badge.svg)](https://github.com/iamgaru/gander/actions/workflows/ci.yml)
+[![CodeQL](https://github.com/iamgaru/gander/workflows/CodeQL/badge.svg)](https://github.com/iamgaru/gander/actions/workflows/codeql.yml)
+[![Go Report Card](https://goreportcard.com/badge/github.com/iamgaru/gander)](https://goreportcard.com/report/github.com/iamgaru/gander)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Release](https://img.shields.io/github/release/iamgaru/gander.svg)](https://github.com/iamgaru/gander/releases/latest)
+
 A transparent, high-performance Man-in-the-Middle (MITM) proxy written in Go for selective traffic inspection and logging. Designed for network security monitoring, debugging, and traffic analysis with minimal latency overhead.
 
 ## Features
@@ -202,6 +208,38 @@ Key performance metrics on Apple M1 Max:
 - Rule checking: **22.00 ns/op**
 - HTTP host extraction: **649.0 ns/op**
 - Configuration loading: **27,348 ns/op**
+
+## Continuous Integration
+
+Gander uses GitHub Actions for automated testing, building, and deployment:
+
+### Workflows
+- **🚀 Quick Check** - Fast validation on every commit (build, basic tests, formatting)
+- **🧪 CI** - Comprehensive testing across Go versions (1.21, 1.22) with coverage reporting
+- **🔍 CodeQL** - Security analysis and code quality scanning (weekly + on PRs)
+- **🏗️ Release** - Automated releases with cross-platform binaries on tag push
+- **🔄 Dependabot** - Automated dependency updates (weekly)
+
+### Status Badges
+The badges at the top of this README show:
+- **CI Status** - Current build and test status
+- **CodeQL** - Security analysis status  
+- **Go Report Card** - Code quality score
+- **License** - MIT license confirmation
+- **Latest Release** - Current version available
+
+### Automated Releases
+Create a new release by pushing a version tag:
+```bash
+git tag v1.0.0
+git push origin v1.0.0
+```
+
+This automatically:
+- Runs full test suite
+- Builds binaries for Linux, macOS, and Windows
+- Creates GitHub release with changelog
+- Uploads release artifacts
 
 ## Configuration
 
