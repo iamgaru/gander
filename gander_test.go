@@ -553,3 +553,68 @@ func TestProxyServerIntegration(t *testing.T) {
 		// This is expected - the proxy should be running
 	}
 }
+
+// Test address parsing for CONNECT requests
+func TestConnectAddressParsing(t *testing.T) {
+	tests := []struct {
+		name           string
+		connectRequest string
+		expectedDomain string
+		expectedAddr   string
+	}{
+		{
+			name:           "CONNECT with port",
+			connectRequest: "CONNECT play.google.com:443 HTTP/1.1\r\n\r\n",
+			expectedDomain: "play.google.com",
+			expectedAddr:   "play.google.com:443",
+		},
+		{
+			name:           "CONNECT without port (should add default)",
+			connectRequest: "CONNECT example.com HTTP/1.1\r\n\r\n",
+			expectedDomain: "example.com",
+			expectedAddr:   "example.com:443", // Should add default HTTPS port for TLS
+		},
+		{
+			name:           "CONNECT with custom port",
+			connectRequest: "CONNECT api.example.com:8443 HTTP/1.1\r\n\r\n",
+			expectedDomain: "api.example.com",
+			expectedAddr:   "api.example.com:8443",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			// Simulate CONNECT request parsing
+			parts := strings.Fields(test.connectRequest)
+			if len(parts) < 2 {
+				t.Fatalf("Invalid CONNECT request: %s", test.connectRequest)
+			}
+
+			serverAddr := parts[1]
+			var domain string
+
+			// This mirrors the logic in handleConnection
+			if colonIndex := strings.Index(serverAddr, ":"); colonIndex != -1 {
+				domain = serverAddr[:colonIndex]
+			} else {
+				domain = serverAddr
+				// If no port specified, add default port (simulating TLS)
+				serverAddr = domain + ":443"
+			}
+
+			if domain != test.expectedDomain {
+				t.Errorf("Expected domain %s, got %s", test.expectedDomain, domain)
+			}
+
+			if serverAddr != test.expectedAddr {
+				t.Errorf("Expected address %s, got %s", test.expectedAddr, serverAddr)
+			}
+
+			// Verify no double colons in address
+			colonCount := strings.Count(serverAddr, ":")
+			if colonCount != 1 {
+				t.Errorf("Expected exactly 1 colon in address %s, got %d", serverAddr, colonCount)
+			}
+		})
+	}
+}

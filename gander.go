@@ -511,8 +511,26 @@ func (ps *ProxyServer) handleConnection(clientConn net.Conn) {
 				parts := strings.Fields(scanner.Text())
 				if len(parts) >= 2 {
 					serverAddr = parts[1]
-					domain = strings.Split(serverAddr, ":")[0]
+					// Extract domain from serverAddr (handle both domain:port and domain formats)
+					if colonIndex := strings.Index(serverAddr, ":"); colonIndex != -1 {
+						domain = serverAddr[:colonIndex]
+					} else {
+						domain = serverAddr
+						// If no port specified, add default port
+						if peekBuffer[0] == 0x16 { // TLS
+							serverAddr = domain + ":443"
+						} else {
+							serverAddr = domain + ":80"
+						}
+					}
 				}
+			}
+		} else {
+			// Handle non-CONNECT requests in explicit mode (HTTP GET, POST, etc.)
+			domain = extractHTTPHost(peekBuffer[:n])
+			if domain != "" {
+				// For HTTP requests, use port 80
+				serverAddr = domain + ":80"
 			}
 		}
 	}
