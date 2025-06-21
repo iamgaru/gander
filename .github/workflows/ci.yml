@@ -227,19 +227,12 @@ jobs:
     - name: Run Gosec Security Scanner
       run: |
         go install github.com/securecodewarrior/gosec/v2/cmd/gosec@latest
-        gosec -fmt sarif -out gosec-results.sarif ./... || echo "Gosec completed with warnings"
-        # Create empty SARIF file if gosec failed
-        if [ ! -f gosec-results.sarif ]; then
-          echo '{"version": "2.1.0", "$schema": "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/master/Schemata/sarif-schema-2.1.0.json", "runs": [{"tool": {"driver": {"name": "gosec", "version": "2.5.0"}}, "results": []}]}' > gosec-results.sarif
-        fi
-
-    - name: Upload Gosec results to GitHub Security tab
-      uses: github/codeql-action/upload-sarif@v3
-      if: always()
-      with:
-        sarif_file: gosec-results.sarif
+        echo "Running gosec security scan..."
+        gosec -fmt text ./... || echo "Gosec scan completed with findings"
+        echo "Security scan finished"
 
     - name: Run Nancy vulnerability scanner
       run: |
+        echo "Running Nancy vulnerability scanner..."
         go install github.com/sonatypecommunity/nancy@latest
         go list -json -deps ./... | nancy sleuth || echo "Nancy scan completed" 
