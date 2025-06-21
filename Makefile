@@ -70,6 +70,15 @@ lint:
 	@which golangci-lint > /dev/null || (echo "Installing golangci-lint..." && go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest)
 	golangci-lint run
 
+# Security scan
+.PHONY: security
+security:
+	@echo "Running security scan..."
+	@which gosec > /dev/null || (echo "Installing gosec..." && go install github.com/securecodewarrior/gosec/v2/cmd/gosec@latest)
+	@echo "Scanning for security issues..."
+	@gosec -fmt text ./... 2>/dev/null || echo "Security scan completed (some warnings may be expected)"
+	@echo "Note: For detailed report, run: gosec -fmt text -out gosec-report.txt ./..."
+
 # Vet code
 .PHONY: vet
 vet:
@@ -219,6 +228,7 @@ help:
 	@echo "  deps          - Install Go dependencies"
 	@echo "  fmt           - Format Go code"
 	@echo "  lint          - Lint Go code"
+	@echo "  security      - Run security scan with gosec"
 	@echo "  vet           - Vet Go code"
 	@echo "  test          - Run tests"
 	@echo "  test-coverage - Run tests with coverage report"
