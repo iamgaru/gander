@@ -149,6 +149,23 @@ trust-ca-linux: gen-ca
 		echo "   2. Update the CA trust database"; \
 	fi
 
+# Trust CA certificate in Windows certificate store
+.PHONY: trust-ca-windows
+trust-ca-windows: gen-ca
+	@echo "Trusting CA certificate in Windows certificate store..."
+	@if [ ! -f $(CERT_DIR)/ca.crt ]; then \
+		echo "ERROR: CA certificate not found. Run 'make gen-ca' first."; \
+		exit 1; \
+	fi
+	@echo "💻 Windows detected - Using PowerShell to install certificate..."
+	@echo "📋 Installing to Local Machine Root store (requires Administrator)..."
+	@powershell.exe -Command "Import-Certificate -FilePath '$(CERT_DIR)/ca.crt' -CertStoreLocation Cert:\LocalMachine\Root" || \
+	(echo "❌ Failed to install to LocalMachine store (Administrator required)"; \
+	 echo "💡 Trying Current User store instead..."; \
+	 powershell.exe -Command "Import-Certificate -FilePath '$(CERT_DIR)/ca.crt' -CertStoreLocation Cert:\CurrentUser\Root")
+	@echo "✅ CA certificate trusted in Windows certificate store"
+	@echo "📋 You can verify with: certutil -store ROOT | findstr \"Gander\""
+
 # Trust CA certificate (auto-detect OS)
 .PHONY: trust-ca
 trust-ca:
@@ -159,6 +176,9 @@ trust-ca:
 	elif [ "$$(uname)" = "Linux" ]; then \
 		echo "🐧 Detected Linux"; \
 		$(MAKE) trust-ca-linux; \
+	elif [ "$$(uname -s | cut -c1-10)" = "MINGW32_NT" ] || [ "$$(uname -s | cut -c1-10)" = "MINGW64_NT" ] || [ "$$(uname -s | cut -c1-6)" = "CYGWIN" ] || [ -n "$$WINDIR" ]; then \
+		echo "💻 Detected Windows"; \
+		$(MAKE) trust-ca-windows; \
 	else \
 		echo "❌ Unsupported operating system: $$(uname)"; \
 		echo "📋 Manual certificate trust required"; \
@@ -189,6 +209,17 @@ untrust-ca-linux:
 		echo "❌ CA certificate not found in system store"; \
 	fi
 
+# Remove trusted CA certificate from Windows certificate store
+.PHONY: untrust-ca-windows
+untrust-ca-windows:
+	@echo "Removing CA certificate from Windows certificate store..."
+	@echo "💻 Windows detected - Using certutil to remove certificate..."
+	@certutil -delstore ROOT "Gander MITM CA" || \
+	 powershell.exe -Command "Get-ChildItem -Path Cert:\LocalMachine\Root | Where-Object {\$$_.Subject -like '*Gander*'} | Remove-Item" || \
+	 powershell.exe -Command "Get-ChildItem -Path Cert:\CurrentUser\Root | Where-Object {\$$_.Subject -like '*Gander*'} | Remove-Item" || \
+	 echo "❌ CA certificate not found in Windows certificate store"
+	@echo "✅ CA certificate removed from Windows certificate store"
+
 # Remove trusted CA certificate (auto-detect OS)
 .PHONY: untrust-ca
 untrust-ca:
@@ -199,6 +230,9 @@ untrust-ca:
 	elif [ "$$(uname)" = "Linux" ]; then \
 		echo "🐧 Detected Linux"; \
 		$(MAKE) untrust-ca-linux; \
+	elif [ "$$(uname -s | cut -c1-10)" = "MINGW32_NT" ] || [ "$$(uname -s | cut -c1-10)" = "MINGW64_NT" ] || [ "$$(uname -s | cut -c1-6)" = "CYGWIN" ] || [ -n "$$WINDIR" ]; then \
+		echo "💻 Detected Windows"; \
+		$(MAKE) untrust-ca-windows; \
 	else \
 		echo "❌ Unsupported operating system: $$(uname)"; \
 		echo "📋 Manual certificate removal required"; \
@@ -241,6 +275,15 @@ verify-ca:
 			echo "✅ CA certificate found in Linux system store"; \
 		else \
 			echo "❌ CA certificate not found in Linux system store"; \
+			echo "💡 Run: make trust-ca"; \
+		fi; \
+	elif [ "$$(uname -s | cut -c1-10)" = "MINGW32_NT" ] || [ "$$(uname -s | cut -c1-10)" = "MINGW64_NT" ] || [ "$$(uname -s | cut -c1-6)" = "CYGWIN" ] || [ -n "$$WINDIR" ]; then \
+		echo "💻 Checking Windows certificate store..."; \
+		if certutil -store ROOT | findstr "Gander" >/dev/null 2>&1; then \
+			echo "✅ CA certificate found in Windows certificate store"; \
+			certutil -store ROOT | findstr -A 5 -B 5 "Gander"; \
+		else \
+			echo "❌ CA certificate not found in Windows certificate store"; \
 			echo "💡 Run: make trust-ca"; \
 		fi; \
 	else \
@@ -455,6 +498,7 @@ help:
 	@echo "  trust-ca      - Trust CA certificate in system keychain (auto-detect OS)"
 	@echo "  trust-ca-macos - Trust CA certificate in macOS keychain"
 	@echo "  trust-ca-linux - Trust CA certificate in Linux system store"
+	@echo "  trust-ca-windows - Trust CA certificate in Windows certificate store"
 	@echo "  setup-mitm    - Complete MITM setup (setup + gen-ca + trust-ca)"
 	@echo "  verify-ca     - Verify CA certificate trust status"
 	@echo "  untrust-ca    - Remove CA certificate from system trust (auto-detect OS)"

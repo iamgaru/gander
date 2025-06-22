@@ -425,6 +425,20 @@ CMD ["./gander", "config.json"]
 
 ## Certificate Management
 
+### Automated Setup
+
+For complete automated MITM certificate setup with system trust:
+
+```bash
+# Complete setup: generate CA + trust in system + setup project
+make setup-mitm
+
+# Or step by step:
+make gen-ca      # Generate CA certificate
+make trust-ca    # Auto-detect OS and trust CA certificate
+make verify-ca   # Verify certificate trust status
+```
+
 ### Using Custom CA
 
 1. **Generate CA Certificate**:
@@ -435,25 +449,142 @@ make gen-ca
 2. **Configure Auto-Generation**:
 Set `auto_generate: true` in the TLS configuration to automatically generate certificates for new domains.
 
-### Client Certificate Installation
+### System Certificate Trust
 
-**Chrome/Chromium**:
-1. Go to Settings → Privacy and security → Security → Manage certificates
-2. Import `certs/ca.crt` as a trusted root certificate
+**Automatic (Recommended)**:
+```bash
+# Auto-detect OS and install CA certificate (supports macOS, Linux, Windows)
+make trust-ca
 
-**Firefox**:
-1. Go to Settings → Privacy & Security → Certificates → View Certificates
-2. Import `certs/ca.crt` in the Authorities tab
+# Verify installation
+make verify-ca
 
-**System-wide (Linux)**:
+# For Chrome-specific issues (macOS)
+make fix-chrome
+```
+
+**Manual Installation**:
+
+**macOS System-wide**:
+```bash
+# Add to System keychain (affects all apps including browsers)
+sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain certs/ca.crt
+
+# Add to login keychain (Chrome sometimes prefers this)
+security add-trusted-cert -d -r trustRoot -k ~/Library/Keychains/login.keychain-db certs/ca.crt
+
+# Verify installation
+security find-certificate -c "Gander MITM CA" /Library/Keychains/System.keychain
+```
+
+**Linux (Ubuntu/Debian)**:
 ```bash
 sudo cp certs/ca.crt /usr/local/share/ca-certificates/gander-proxy.crt
 sudo update-ca-certificates
 ```
 
-**System-wide (macOS)**:
+**Linux (RHEL/CentOS)**:
 ```bash
-sudo security add-trusted-cert -d root -r trustRoot -k /Library/Keychains/System.keychain certs/ca.crt
+sudo cp certs/ca.crt /etc/pki/ca-trust/source/anchors/gander-proxy.crt
+sudo update-ca-trust
+```
+
+**Windows System-wide**:
+```powershell
+# Import CA certificate to Trusted Root Certification Authorities (requires Administrator)
+# Method 1: Using PowerShell (Recommended)
+Import-Certificate -FilePath "certs\ca.crt" -CertStoreLocation Cert:\LocalMachine\Root
+
+# Method 2: Using certlm.msc GUI
+# 1. Run "certlm.msc" as Administrator
+# 2. Navigate to "Trusted Root Certification Authorities" → "Certificates"
+# 3. Right-click → "All Tasks" → "Import"
+# 4. Select "certs\ca.crt" and complete the wizard
+
+# Method 3: Using certutil command
+certutil -addstore -f "ROOT" "certs\ca.crt"
+
+# Verify installation
+certutil -store ROOT | findstr "Gander"
+```
+
+**Note**: Windows commands require PowerShell and may need Administrator privileges for system-wide installation.
+
+**Windows User-level (Alternative)**:
+```powershell
+# Import to Current User store (no Administrator required)
+Import-Certificate -FilePath "certs\ca.crt" -CertStoreLocation Cert:\CurrentUser\Root
+
+# Verify installation
+Get-ChildItem -Path Cert:\CurrentUser\Root | Where-Object {$_.Subject -like "*Gander*"}
+```
+
+### Browser-Specific Installation
+
+**Chrome/Chromium**:
+1. Go to Settings → Privacy and security → Security → Manage certificates
+2. Import `certs/ca.crt` as a trusted root certificate
+3. **Note**: On macOS, restart Chrome completely after system trust installation
+
+**Firefox**:
+1. Go to Settings → Privacy & Security → Certificates → View Certificates
+2. Import `certs/ca.crt` in the Authorities tab
+
+### Testing Certificate Trust
+
+```bash
+# Test with curl (should work without certificate warnings)
+curl -x localhost:1234 https://example.com
+
+# Test with system CA bundle
+make test-mitm
+
+# Remove trust (for cleanup)
+make untrust-ca
+```
+
+### Troubleshooting Certificate Issues
+
+**Chrome shows certificate warnings**:
+```bash
+# Try Chrome-specific fix (macOS)
+make fix-chrome
+
+# Restart Chrome completely
+pkill -f "Google Chrome"
+# Then restart Chrome
+```
+
+**Certificate not trusted**:
+```bash
+# Verify CA is installed
+make verify-ca
+
+# Check certificate details
+openssl x509 -in certs/ca.crt -text -noout
+
+# Regenerate if needed
+make clean-all
+make setup-mitm
+```
+
+**Windows-specific troubleshooting**:
+```powershell
+# Check if certificate is installed (System store)
+certutil -store ROOT | findstr "Gander"
+
+# Check if certificate is installed (User store)
+Get-ChildItem -Path Cert:\CurrentUser\Root | Where-Object {$_.Subject -like "*Gander*"}
+
+# Remove certificate if needed (System store - requires Administrator)
+certutil -delstore ROOT "Gander MITM CA"
+
+# Remove certificate (User store)
+Get-ChildItem -Path Cert:\CurrentUser\Root | Where-Object {$_.Subject -like "*Gander*"} | Remove-Item
+
+# Clear certificate cache (may help with browser issues)
+certlm.msc  # Manual certificate manager
+# Or restart browser completely
 ```
 
 ## Logging and Monitoring
