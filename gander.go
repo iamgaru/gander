@@ -912,54 +912,6 @@ func (ps *ProxyServer) generateCA(certFile, keyFile string) error {
 	return nil
 }
 
-// Generate certificate for domain
-func (ps *ProxyServer) generateCertForDomain(domain string) (*tls.Certificate, error) {
-	// Generate private key
-	key, err := rsa.GenerateKey(rand.Reader, 2048)
-	if err != nil {
-		return nil, err
-	}
-
-	// Create certificate template
-	template := x509.Certificate{
-		SerialNumber: big.NewInt(time.Now().UnixNano()),
-		Subject: pkix.Name{
-			Organization:  []string{"Gander MITM Proxy"},
-			Country:       []string{"US"},
-			Province:      []string{""},
-			Locality:      []string{""},
-			StreetAddress: []string{""},
-			PostalCode:    []string{""},
-			CommonName:    domain,
-		},
-		NotBefore:   time.Now(),
-		NotAfter:    time.Now().Add(time.Duration(ps.config.TLS.ValidDays*24) * time.Hour),
-		KeyUsage:    x509.KeyUsageKeyEncipherment | x509.KeyUsageDigitalSignature,
-		ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
-		IPAddresses: []net.IP{},
-		DNSNames:    []string{domain},
-	}
-
-	// Handle wildcard domains
-	if strings.HasPrefix(domain, "*.") {
-		template.DNSNames = append(template.DNSNames, domain[2:])
-	}
-
-	// Create certificate
-	certDER, err := x509.CreateCertificate(rand.Reader, &template, ps.caCert, &key.PublicKey, ps.caKey)
-	if err != nil {
-		return nil, err
-	}
-
-	// Create TLS certificate
-	cert := &tls.Certificate{
-		Certificate: [][]byte{certDER},
-		PrivateKey:  key,
-	}
-
-	return cert, nil
-}
-
 // Get certificate for domain (with caching and optional sniffing)
 func (ps *ProxyServer) getCertForDomain(domain, serverAddr string) (*tls.Certificate, error) {
 	ps.certMutex.RLock()
@@ -1197,10 +1149,7 @@ func (ps *ProxyServer) generateCertForDomainWithSniffing(domain, serverAddr stri
 			}
 
 			// Copy Subject Alternative Names (SANs)
-			template.DNSNames = make([]string, 0)
-			for _, name := range upstreamCert.DNSNames {
-				template.DNSNames = append(template.DNSNames, name)
-			}
+			template.DNSNames = append(template.DNSNames, upstreamCert.DNSNames...)
 
 			// Ensure our target domain is included
 			domainFound := false
