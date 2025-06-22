@@ -121,6 +121,7 @@ type HTTPResponse struct {
 	StatusCode int               `json:"status_code"`
 	Headers    map[string]string `json:"headers"`
 	Body       string            `json:"body,omitempty"`
+	BodySize   int               `json:"body_size"`
 }
 
 // Load configuration from file
@@ -419,6 +420,11 @@ func parseHTTPRequest(data []byte) (*HTTPCapture, error) {
 		capture.BodySize = int(contentLength)
 	}
 
+	// Ensure BodySize is set correctly based on actual body content
+	if capture.Body != "" && capture.BodySize == 0 {
+		capture.BodySize = len(capture.Body)
+	}
+
 	return capture, nil
 }
 
@@ -466,11 +472,13 @@ func (ps *ProxyServer) saveCapture(capture *HTTPCapture) {
 }
 
 // Handle HTTP inspection with enhanced request reconstruction
-func (ps *ProxyServer) inspectHTTP(data []byte, clientIP, domain string) {
+func (ps *ProxyServer) inspectHTTP(data []byte, clientIP, domain string) bool {
 	capture := ps.inspectHTTPWithCapture(data, clientIP, domain)
 	if capture != nil {
 		ps.saveCapture(capture)
+		return true
 	}
+	return false
 }
 
 // Handle HTTP inspection and return the capture object (for use with response matching)
@@ -535,7 +543,7 @@ func (ps *ProxyServer) relayFast(dst, src net.Conn, buffer []byte, counter *int6
 }
 
 // Relay with inspection
-func (ps *ProxyServer) relayWithInspection(dst, src net.Conn, buffer []byte, counter *int64, clientIP, domain string, isRequest bool) {
+func (ps *ProxyServer) relayWithInspection(dst, src net.Conn, buffer []byte, counter *int64, clientIP, domain string, isRequest bool, info *ConnectionInfo) {
 	defer dst.Close()
 	defer src.Close()
 
@@ -552,7 +560,9 @@ func (ps *ProxyServer) relayWithInspection(dst, src net.Conn, buffer []byte, cou
 
 		// Inspect data if it's a request
 		if isRequest {
-			ps.inspectHTTP(buffer[:n], clientIP, domain)
+			if ps.inspectHTTP(buffer[:n], clientIP, domain) {
+				info.Captured = true
+			}
 		}
 
 		if err := dst.SetWriteDeadline(time.Now().Add(time.Duration(ps.config.Proxy.WriteTimeout) * time.Second)); err != nil {
@@ -579,7 +589,12 @@ func (ps *ProxyServer) handleConnection(clientConn net.Conn) {
 		ps.mutex.Unlock()
 	}()
 
-	clientIP := strings.Split(clientConn.RemoteAddr().String(), ":")[0]
+	// Extract client IP properly handling both IPv4 and IPv6
+	clientAddr := clientConn.RemoteAddr().String()
+	clientIP := clientAddr
+	if host, _, err := net.SplitHostPort(clientAddr); err == nil {
+		clientIP = host
+	}
 
 	// Peek at first packet
 	peekBuffer := make([]byte, 4096)
@@ -687,6 +702,13 @@ func (ps *ProxyServer) handleConnection(clientConn net.Conn) {
 			return
 		}
 	} else {
+		// For HTTP requests, inspect the peeked data before forwarding
+		if info.Inspected {
+			if ps.inspectHTTP(peekBuffer[:n], clientIP, domain) {
+				info.Captured = true
+			}
+		}
+
 		// Forward the peeked data
 		if _, err := serverConn.Write(peekBuffer[:n]); err != nil {
 			return
@@ -709,7 +731,7 @@ func (ps *ProxyServer) handleConnection(clientConn net.Conn) {
 
 		// Client -> Server (with inspection)
 		go func() {
-			ps.relayWithInspection(serverConn, clientConn, buffer1, &info.BytesRead, clientIP, domain, true)
+			ps.relayWithInspection(serverConn, clientConn, buffer1, &info.BytesRead, clientIP, domain, true, info)
 			done <- true
 		}()
 
@@ -1251,6 +1273,7 @@ func parseHTTPResponse(data []byte) (*HTTPResponse, error) {
 		if len(bodyData) > 0 {
 			// For binary data, we might want to base64 encode, but for now treat as string
 			response.Body = string(bodyData)
+			response.BodySize = len(bodyData)
 		}
 	}
 
@@ -1285,7 +1308,7 @@ func (ps *ProxyServer) inspectHTTPResponse(data []byte, clientIP, domain string,
 		if ps.config.Logging.EnableDebug {
 			log.Printf("Captured response %d for %s %s from %s to %s (Headers: %d, Body: %d bytes)",
 				response.StatusCode, requestCapture.Method, requestCapture.URL, clientIP, domain,
-				len(response.Headers), len(response.Body))
+				len(response.Headers), response.BodySize)
 		}
 	}
 }
