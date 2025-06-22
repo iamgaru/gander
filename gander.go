@@ -3,13 +3,20 @@ package main
 import (
 	"bufio"
 	"bytes"
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/tls"
+	"crypto/x509"
+	"crypto/x509/pkix"
 	"encoding/json"
+	"encoding/pem"
 	"fmt"
-	"io"
 	"log"
+	"math/big"
 	"net"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -41,13 +48,14 @@ type Config struct {
 	} `json:"rules"`
 
 	TLS struct {
-		CertFile     string `json:"cert_file"`
-		KeyFile      string `json:"key_file"`
-		CAFile       string `json:"ca_file"`
-		CAKeyFile    string `json:"ca_key_file"`
-		CertDir      string `json:"cert_dir"`
-		AutoGenerate bool   `json:"auto_generate"`
-		ValidDays    int    `json:"valid_days"`
+		CertFile          string `json:"cert_file"`
+		KeyFile           string `json:"key_file"`
+		CAFile            string `json:"ca_file"`
+		CAKeyFile         string `json:"ca_key_file"`
+		CertDir           string `json:"cert_dir"`
+		AutoGenerate      bool   `json:"auto_generate"`
+		ValidDays         int    `json:"valid_days"`
+		UpstreamCertSniff bool   `json:"upstream_cert_sniff"`
 	} `json:"tls"`
 }
 
@@ -62,6 +70,10 @@ type ProxyServer struct {
 	bufferPool     *sync.Pool
 	stats          *ProxyStats
 	mutex          sync.RWMutex
+	caCert         *x509.Certificate
+	caKey          *rsa.PrivateKey
+	certCache      map[string]*tls.Certificate
+	certMutex      sync.RWMutex
 }
 
 // Connection statistics
@@ -86,16 +98,23 @@ type ConnectionInfo struct {
 	Captured   bool
 }
 
-// HTTP request capture
+// HTTPCapture represents a captured HTTP request/response
 type HTTPCapture struct {
-	Timestamp time.Time         `json:"timestamp"`
-	ClientIP  string            `json:"client_ip"`
-	Domain    string            `json:"domain"`
-	Method    string            `json:"method"`
-	URL       string            `json:"url"`
-	Headers   map[string]string `json:"headers"`
-	Body      string            `json:"body,omitempty"`
-	Response  *HTTPResponse     `json:"response,omitempty"`
+	Timestamp   time.Time         `json:"timestamp"`
+	ClientIP    string            `json:"client_ip"`
+	Domain      string            `json:"domain"`
+	Method      string            `json:"method"`
+	URL         string            `json:"url"`
+	Path        string            `json:"path"`
+	Query       string            `json:"query,omitempty"`
+	HTTPVersion string            `json:"http_version"`
+	Headers     map[string]string `json:"headers"`
+	Body        string            `json:"body,omitempty"`
+	BodySize    int               `json:"body_size"`
+	ContentType string            `json:"content_type,omitempty"`
+	UserAgent   string            `json:"user_agent,omitempty"`
+	Referer     string            `json:"referer,omitempty"`
+	Response    *HTTPResponse     `json:"response,omitempty"`
 }
 
 type HTTPResponse struct {
@@ -182,7 +201,7 @@ func NewProxyServer(config *Config) (*ProxyServer, error) {
 		},
 	}
 
-	return &ProxyServer{
+	ps := &ProxyServer{
 		config:         config,
 		inspectDomains: inspectDomains,
 		inspectIPs:     inspectIPs,
@@ -191,7 +210,15 @@ func NewProxyServer(config *Config) (*ProxyServer, error) {
 		logFile:        logFile,
 		bufferPool:     bufferPool,
 		stats:          &ProxyStats{},
-	}, nil
+		certCache:      make(map[string]*tls.Certificate),
+	}
+
+	// Initialize CA certificate
+	if err := ps.loadOrGenerateCA(); err != nil {
+		return nil, fmt.Errorf("failed to initialize CA: %v", err)
+	}
+
+	return ps, nil
 }
 
 // Extract SNI from TLS ClientHello
@@ -304,9 +331,17 @@ func (ps *ProxyServer) logConnection(info *ConnectionInfo) {
 	}
 }
 
-// Parse HTTP request
+// Parse HTTP request with enhanced details
 func parseHTTPRequest(data []byte) (*HTTPCapture, error) {
-	reader := bufio.NewReader(bytes.NewReader(data))
+	// Find the end of headers (double CRLF)
+	headerEndIndex := bytes.Index(data, []byte("\r\n\r\n"))
+	if headerEndIndex == -1 {
+		// If no double CRLF found, treat entire data as headers (incomplete request)
+		headerEndIndex = len(data)
+	}
+
+	headerData := data[:headerEndIndex]
+	reader := bufio.NewReader(bytes.NewReader(headerData))
 
 	// Parse request line
 	requestLine, _, err := reader.ReadLine()
@@ -319,14 +354,28 @@ func parseHTTPRequest(data []byte) (*HTTPCapture, error) {
 		return nil, fmt.Errorf("invalid HTTP request line")
 	}
 
+	// Parse URL and query parameters
+	fullURL := parts[1]
+	var path, query string
+	if queryIndex := strings.Index(fullURL, "?"); queryIndex != -1 {
+		path = fullURL[:queryIndex]
+		query = fullURL[queryIndex+1:]
+	} else {
+		path = fullURL
+	}
+
 	capture := &HTTPCapture{
-		Timestamp: time.Now(),
-		Method:    parts[0],
-		URL:       parts[1],
-		Headers:   make(map[string]string),
+		Timestamp:   time.Now(),
+		Method:      parts[0],
+		URL:         fullURL,
+		Path:        path,
+		Query:       query,
+		HTTPVersion: parts[2],
+		Headers:     make(map[string]string),
 	}
 
 	// Parse headers
+	var contentLength int64 = 0
 	for {
 		line, _, err := reader.ReadLine()
 		if err != nil || len(line) == 0 {
@@ -337,24 +386,61 @@ func parseHTTPRequest(data []byte) (*HTTPCapture, error) {
 		if colonIdx := strings.Index(headerLine, ":"); colonIdx != -1 {
 			key := strings.TrimSpace(headerLine[:colonIdx])
 			value := strings.TrimSpace(headerLine[colonIdx+1:])
+
+			// Store all headers
 			capture.Headers[key] = value
+
+			// Extract key headers for easy access
+			switch strings.ToLower(key) {
+			case "content-type":
+				capture.ContentType = value
+			case "user-agent":
+				capture.UserAgent = value
+			case "referer":
+				capture.Referer = value
+			case "content-length":
+				if cl, err := strconv.ParseInt(value, 10, 64); err == nil {
+					contentLength = cl
+				}
+			}
 		}
 	}
 
-	// Read body if present
-	remaining, err := io.ReadAll(reader)
-	if err == nil && len(remaining) > 0 {
-		capture.Body = string(remaining)
+	// Read body if present (after the double CRLF)
+	if headerEndIndex < len(data) && headerEndIndex+4 < len(data) {
+		bodyData := data[headerEndIndex+4:] // Skip the \r\n\r\n
+		if len(bodyData) > 0 {
+			// For binary data, we might want to base64 encode, but for now treat as string
+			capture.Body = string(bodyData)
+			capture.BodySize = len(bodyData)
+		}
+	} else if contentLength > 0 {
+		// If we have content-length but no body in this packet, note the expected size
+		capture.BodySize = int(contentLength)
 	}
 
 	return capture, nil
 }
 
-// Save HTTP capture to disk
+// Save HTTP capture to disk with enhanced details
 func (ps *ProxyServer) saveCapture(capture *HTTPCapture) {
 	timestamp := capture.Timestamp.Format("2006-01-02_15-04-05.000")
-	filename := fmt.Sprintf("%s_%s_%s.json", timestamp, capture.ClientIP, capture.Domain)
+
+	// Create more descriptive filename including method and path
+	safeMethod := strings.ToLower(capture.Method)
+	safePath := strings.ReplaceAll(capture.Path, "/", "_")
+	if safePath == "" || safePath == "_" {
+		safePath = "root"
+	}
+	if len(safePath) > 50 {
+		safePath = safePath[:50]
+	}
+
+	filename := fmt.Sprintf("%s_[%s]_%s_%s_%s.json",
+		timestamp, capture.ClientIP, capture.Domain, safeMethod, safePath)
 	filename = strings.ReplaceAll(filename, ":", "_")
+	filename = strings.ReplaceAll(filename, "?", "_")
+	filename = strings.ReplaceAll(filename, "&", "_")
 
 	filepath := filepath.Join(ps.config.Logging.CaptureDir, filename)
 
@@ -370,22 +456,31 @@ func (ps *ProxyServer) saveCapture(capture *HTTPCapture) {
 		return
 	}
 
+	// Log what was captured
+	log.Printf("Captured request saved: %s %s (%d headers, %d bytes body) -> %s",
+		capture.Method, capture.URL, len(capture.Headers), capture.BodySize, filename)
+
 	ps.mutex.Lock()
 	ps.stats.CapturedRequests++
 	ps.mutex.Unlock()
 }
 
-// Handle HTTP inspection
+// Handle HTTP inspection with enhanced request reconstruction
 func (ps *ProxyServer) inspectHTTP(data []byte, clientIP, domain string) {
+	// Look for HTTP request start patterns
 	if !bytes.HasPrefix(data, []byte("GET ")) &&
 		!bytes.HasPrefix(data, []byte("POST ")) &&
 		!bytes.HasPrefix(data, []byte("PUT ")) &&
 		!bytes.HasPrefix(data, []byte("DELETE ")) &&
 		!bytes.HasPrefix(data, []byte("HEAD ")) &&
-		!bytes.HasPrefix(data, []byte("OPTIONS ")) {
+		!bytes.HasPrefix(data, []byte("OPTIONS ")) &&
+		!bytes.HasPrefix(data, []byte("PATCH ")) &&
+		!bytes.HasPrefix(data, []byte("TRACE ")) &&
+		!bytes.HasPrefix(data, []byte("CONNECT ")) {
 		return
 	}
 
+	// Parse the complete HTTP request as a single entity
 	capture, err := parseHTTPRequest(data)
 	if err != nil {
 		if ps.config.Logging.EnableDebug {
@@ -396,6 +491,12 @@ func (ps *ProxyServer) inspectHTTP(data []byte, clientIP, domain string) {
 
 	capture.ClientIP = clientIP
 	capture.Domain = domain
+
+	// Log the captured request details
+	if ps.config.Logging.EnableDebug {
+		log.Printf("Captured %s %s from %s to %s (Headers: %d, Body: %d bytes)",
+			capture.Method, capture.URL, clientIP, domain, len(capture.Headers), capture.BodySize)
+	}
 
 	ps.saveCapture(capture)
 }
@@ -561,8 +662,19 @@ func (ps *ProxyServer) handleConnection(clientConn net.Conn) {
 		info.Protocol = "HTTPS"
 	}
 
-	// If explicit proxy mode, send 200 OK for CONNECT
-	if !ps.config.Proxy.Transparent && bytes.HasPrefix(peekBuffer[:n], []byte("CONNECT ")) {
+	// Determine if this is HTTPS and a CONNECT request
+	isConnect := !ps.config.Proxy.Transparent && bytes.HasPrefix(peekBuffer[:n], []byte("CONNECT "))
+	isHTTPS := strings.HasSuffix(serverAddr, ":443") || peekBuffer[0] == 0x16
+
+	// Handle HTTPS interception for inspected connections
+	if info.Inspected && isHTTPS && isConnect {
+		serverConn.Close() // Close the connection we opened, we'll handle this differently
+		ps.handleHTTPSInterception(clientConn, domain, info)
+		return
+	}
+
+	// Handle regular connections
+	if isConnect {
 		if _, err := clientConn.Write([]byte("HTTP/1.1 200 Connection established\r\n\r\n")); err != nil {
 			return
 		}
@@ -660,6 +772,442 @@ func (ps *ProxyServer) GetStats() *ProxyStats {
 		InspectedConnections: ps.stats.InspectedConnections,
 		CapturedRequests:     ps.stats.CapturedRequests,
 	}
+}
+
+// Generate or load CA certificate
+func (ps *ProxyServer) loadOrGenerateCA() error {
+	caFile := ps.config.TLS.CAFile
+	keyFile := ps.config.TLS.CAKeyFile
+
+	// Try to load existing CA
+	if _, err := os.Stat(caFile); err == nil {
+		if _, err := os.Stat(keyFile); err == nil {
+			return ps.loadCA(caFile, keyFile)
+		}
+	}
+
+	// Generate new CA if auto-generate is enabled
+	if ps.config.TLS.AutoGenerate {
+		return ps.generateCA(caFile, keyFile)
+	}
+
+	return fmt.Errorf("CA certificate not found and auto-generate is disabled")
+}
+
+// Load existing CA certificate
+func (ps *ProxyServer) loadCA(certFile, keyFile string) error {
+	// Load certificate
+	certPEM, err := os.ReadFile(certFile)
+	if err != nil {
+		return err
+	}
+
+	block, _ := pem.Decode(certPEM)
+	if block == nil {
+		return fmt.Errorf("failed to parse certificate PEM")
+	}
+
+	ps.caCert, err = x509.ParseCertificate(block.Bytes)
+	if err != nil {
+		return err
+	}
+
+	// Load private key
+	keyPEM, err := os.ReadFile(keyFile)
+	if err != nil {
+		return err
+	}
+
+	block, _ = pem.Decode(keyPEM)
+	if block == nil {
+		return fmt.Errorf("failed to parse key PEM")
+	}
+
+	ps.caKey, err = x509.ParsePKCS1PrivateKey(block.Bytes)
+	if err != nil {
+		return err
+	}
+
+	log.Printf("Loaded CA certificate: %s", ps.caCert.Subject.CommonName)
+	return nil
+}
+
+// Generate new CA certificate
+func (ps *ProxyServer) generateCA(certFile, keyFile string) error {
+	// Generate private key
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		return err
+	}
+
+	// Create certificate template
+	template := x509.Certificate{
+		SerialNumber: big.NewInt(1),
+		Subject: pkix.Name{
+			Organization:  []string{"Gander MITM Proxy"},
+			Country:       []string{"US"},
+			Province:      []string{""},
+			Locality:      []string{""},
+			StreetAddress: []string{""},
+			PostalCode:    []string{""},
+			CommonName:    "Gander MITM CA",
+		},
+		NotBefore:             time.Now(),
+		NotAfter:              time.Now().Add(time.Duration(ps.config.TLS.ValidDays*24) * time.Hour),
+		KeyUsage:              x509.KeyUsageKeyEncipherment | x509.KeyUsageDigitalSignature | x509.KeyUsageCertSign,
+		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+		BasicConstraintsValid: true,
+		IsCA:                  true,
+	}
+
+	// Create certificate
+	certDER, err := x509.CreateCertificate(rand.Reader, &template, &template, &key.PublicKey, key)
+	if err != nil {
+		return err
+	}
+
+	// Parse certificate
+	ps.caCert, err = x509.ParseCertificate(certDER)
+	if err != nil {
+		return err
+	}
+	ps.caKey = key
+
+	// Create cert directory
+	if err := os.MkdirAll(ps.config.TLS.CertDir, 0755); err != nil {
+		return err
+	}
+
+	// Save certificate
+	certOut, err := os.Create(certFile)
+	if err != nil {
+		return err
+	}
+	defer certOut.Close()
+
+	if err := pem.Encode(certOut, &pem.Block{Type: "CERTIFICATE", Bytes: certDER}); err != nil {
+		return err
+	}
+
+	// Save private key
+	keyOut, err := os.Create(keyFile)
+	if err != nil {
+		return err
+	}
+	defer keyOut.Close()
+
+	if err := pem.Encode(keyOut, &pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key)}); err != nil {
+		return err
+	}
+
+	log.Printf("Generated CA certificate: %s", ps.caCert.Subject.CommonName)
+	return nil
+}
+
+// Generate certificate for domain
+func (ps *ProxyServer) generateCertForDomain(domain string) (*tls.Certificate, error) {
+	// Generate private key
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		return nil, err
+	}
+
+	// Create certificate template
+	template := x509.Certificate{
+		SerialNumber: big.NewInt(time.Now().UnixNano()),
+		Subject: pkix.Name{
+			Organization:  []string{"Gander MITM Proxy"},
+			Country:       []string{"US"},
+			Province:      []string{""},
+			Locality:      []string{""},
+			StreetAddress: []string{""},
+			PostalCode:    []string{""},
+			CommonName:    domain,
+		},
+		NotBefore:   time.Now(),
+		NotAfter:    time.Now().Add(time.Duration(ps.config.TLS.ValidDays*24) * time.Hour),
+		KeyUsage:    x509.KeyUsageKeyEncipherment | x509.KeyUsageDigitalSignature,
+		ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+		IPAddresses: []net.IP{},
+		DNSNames:    []string{domain},
+	}
+
+	// Handle wildcard domains
+	if strings.HasPrefix(domain, "*.") {
+		template.DNSNames = append(template.DNSNames, domain[2:])
+	}
+
+	// Create certificate
+	certDER, err := x509.CreateCertificate(rand.Reader, &template, ps.caCert, &key.PublicKey, ps.caKey)
+	if err != nil {
+		return nil, err
+	}
+
+	// Create TLS certificate
+	cert := &tls.Certificate{
+		Certificate: [][]byte{certDER},
+		PrivateKey:  key,
+	}
+
+	return cert, nil
+}
+
+// Get certificate for domain (with caching and optional sniffing)
+func (ps *ProxyServer) getCertForDomain(domain, serverAddr string) (*tls.Certificate, error) {
+	ps.certMutex.RLock()
+	if cert, exists := ps.certCache[domain]; exists {
+		ps.certMutex.RUnlock()
+		return cert, nil
+	}
+	ps.certMutex.RUnlock()
+
+	// Generate new certificate with optional upstream sniffing
+	cert, err := ps.generateCertForDomainWithSniffing(domain, serverAddr)
+	if err != nil {
+		return nil, err
+	}
+
+	// Cache certificate
+	ps.certMutex.Lock()
+	ps.certCache[domain] = cert
+	ps.certMutex.Unlock()
+
+	return cert, nil
+}
+
+// Handle HTTPS interception with certificate substitution
+func (ps *ProxyServer) handleHTTPSInterception(clientConn net.Conn, domain string, info *ConnectionInfo) {
+	// Send 200 OK for CONNECT
+	if _, err := clientConn.Write([]byte("HTTP/1.1 200 Connection established\r\n\r\n")); err != nil {
+		return
+	}
+
+	// Get certificate for domain
+	cert, err := ps.getCertForDomain(domain, info.ServerAddr)
+	if err != nil {
+		log.Printf("Failed to get certificate for %s: %v", domain, err)
+		return
+	}
+
+	// Create TLS config with generated certificate
+	tlsConfig := &tls.Config{
+		Certificates: []tls.Certificate{*cert},
+		ServerName:   domain,
+	}
+
+	// Upgrade client connection to TLS
+	clientTLSConn := tls.Server(clientConn, tlsConfig)
+	if err := clientTLSConn.Handshake(); err != nil {
+		log.Printf("TLS handshake failed for %s: %v", domain, err)
+		return
+	}
+	defer clientTLSConn.Close()
+
+	// Connect to real server
+	serverConn, err := tls.Dial("tcp", info.ServerAddr, &tls.Config{
+		ServerName:         domain,
+		InsecureSkipVerify: true, // We're intercepting, so we skip verification
+	})
+	if err != nil {
+		log.Printf("Failed to connect to %s: %v", info.ServerAddr, err)
+		return
+	}
+	defer serverConn.Close()
+
+	ps.mutex.Lock()
+	ps.stats.InspectedConnections++
+	ps.mutex.Unlock()
+
+	// Get buffers from pool
+	buffer1 := *ps.bufferPool.Get().(*[]byte)
+	buffer2 := *ps.bufferPool.Get().(*[]byte)
+	defer ps.bufferPool.Put(&buffer1)
+	defer ps.bufferPool.Put(&buffer2)
+
+	// Start bidirectional relay with inspection
+	done := make(chan bool, 2)
+
+	// Client -> Server (with inspection)
+	go func() {
+		ps.relayWithHTTPSInspection(serverConn, clientTLSConn, buffer1, &info.BytesRead, info.ClientIP, domain)
+		done <- true
+	}()
+
+	// Server -> Client (without inspection for responses)
+	go func() {
+		ps.relayFast(clientTLSConn, serverConn, buffer2, &info.BytesWrite)
+		done <- true
+	}()
+
+	// Wait for completion
+	<-done
+
+	// Update stats
+	ps.mutex.Lock()
+	ps.stats.BytesTransferred += info.BytesRead + info.BytesWrite
+	ps.mutex.Unlock()
+
+	// Mark as captured since we intercepted HTTPS
+	info.Captured = true
+
+	// Log connection
+	ps.logConnection(info)
+}
+
+// Relay with HTTPS inspection (decrypted content)
+func (ps *ProxyServer) relayWithHTTPSInspection(dst, src net.Conn, buffer []byte, counter *int64, clientIP, domain string) {
+	defer dst.Close()
+	defer src.Close()
+
+	for {
+		if err := src.SetReadDeadline(time.Now().Add(time.Duration(ps.config.Proxy.ReadTimeout) * time.Second)); err != nil {
+			return
+		}
+		n, err := src.Read(buffer)
+		if err != nil {
+			return
+		}
+
+		*counter += int64(n)
+
+		// Inspect decrypted HTTPS data
+		ps.inspectHTTP(buffer[:n], clientIP, domain)
+
+		if err := dst.SetWriteDeadline(time.Now().Add(time.Duration(ps.config.Proxy.WriteTimeout) * time.Second)); err != nil {
+			return
+		}
+		if _, err = dst.Write(buffer[:n]); err != nil {
+			return
+		}
+	}
+}
+
+// Sniff upstream certificate to extract details for generating matching certificate
+func (ps *ProxyServer) sniffUpstreamCert(domain, serverAddr string) (*x509.Certificate, error) {
+	// Connect to upstream server with TLS
+	conn, err := tls.DialWithDialer(&net.Dialer{Timeout: 10 * time.Second}, "tcp", serverAddr, &tls.Config{
+		ServerName:         domain,
+		InsecureSkipVerify: true, // We just want to sniff the cert, not verify it
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to connect to upstream server: %v", err)
+	}
+	defer conn.Close()
+
+	// Get the peer certificate chain
+	state := conn.ConnectionState()
+	if len(state.PeerCertificates) == 0 {
+		return nil, fmt.Errorf("no certificates received from upstream server")
+	}
+
+	// Return the leaf certificate (first in chain)
+	upstreamCert := state.PeerCertificates[0]
+
+	if ps.config.Logging.EnableDebug {
+		log.Printf("Sniffed upstream cert for %s: CN=%s, SAN=%v, Org=%v",
+			domain, upstreamCert.Subject.CommonName, upstreamCert.DNSNames, upstreamCert.Subject.Organization)
+	}
+
+	return upstreamCert, nil
+}
+
+// Generate certificate for domain with optional upstream certificate sniffing
+func (ps *ProxyServer) generateCertForDomainWithSniffing(domain, serverAddr string) (*tls.Certificate, error) {
+	// Generate private key
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		return nil, err
+	}
+
+	// Create base certificate template
+	template := x509.Certificate{
+		SerialNumber: big.NewInt(time.Now().UnixNano()),
+		Subject: pkix.Name{
+			Organization:  []string{"Gander MITM Proxy"},
+			Country:       []string{"US"},
+			Province:      []string{""},
+			Locality:      []string{""},
+			StreetAddress: []string{""},
+			PostalCode:    []string{""},
+			CommonName:    domain,
+		},
+		NotBefore:   time.Now(),
+		NotAfter:    time.Now().Add(time.Duration(ps.config.TLS.ValidDays*24) * time.Hour),
+		KeyUsage:    x509.KeyUsageKeyEncipherment | x509.KeyUsageDigitalSignature,
+		ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+		IPAddresses: []net.IP{},
+		DNSNames:    []string{domain},
+	}
+
+	// If upstream certificate sniffing is enabled, try to mimic the upstream certificate
+	if ps.config.TLS.UpstreamCertSniff {
+		upstreamCert, err := ps.sniffUpstreamCert(domain, serverAddr)
+		if err != nil {
+			if ps.config.Logging.EnableDebug {
+				log.Printf("Failed to sniff upstream cert for %s: %v, using default template", domain, err)
+			}
+		} else {
+			// Copy relevant fields from upstream certificate
+			template.Subject.Organization = upstreamCert.Subject.Organization
+			template.Subject.OrganizationalUnit = upstreamCert.Subject.OrganizationalUnit
+			template.Subject.Country = upstreamCert.Subject.Country
+			template.Subject.Province = upstreamCert.Subject.Province
+			template.Subject.Locality = upstreamCert.Subject.Locality
+			template.Subject.StreetAddress = upstreamCert.Subject.StreetAddress
+			template.Subject.PostalCode = upstreamCert.Subject.PostalCode
+
+			// Use the upstream Common Name if it matches the domain
+			if upstreamCert.Subject.CommonName == domain || strings.HasPrefix(domain, "*.") {
+				template.Subject.CommonName = upstreamCert.Subject.CommonName
+			}
+
+			// Copy Subject Alternative Names (SANs)
+			template.DNSNames = make([]string, 0)
+			for _, name := range upstreamCert.DNSNames {
+				template.DNSNames = append(template.DNSNames, name)
+			}
+
+			// Ensure our target domain is included
+			domainFound := false
+			for _, name := range template.DNSNames {
+				if name == domain {
+					domainFound = true
+					break
+				}
+			}
+			if !domainFound {
+				template.DNSNames = append(template.DNSNames, domain)
+			}
+
+			// Copy IP addresses
+			template.IPAddresses = make([]net.IP, len(upstreamCert.IPAddresses))
+			copy(template.IPAddresses, upstreamCert.IPAddresses)
+
+			if ps.config.Logging.EnableDebug {
+				log.Printf("Generated certificate for %s using upstream cert template: CN=%s, SAN=%v",
+					domain, template.Subject.CommonName, template.DNSNames)
+			}
+		}
+	}
+
+	// Handle wildcard domains
+	if strings.HasPrefix(domain, "*.") {
+		template.DNSNames = append(template.DNSNames, domain[2:])
+	}
+
+	// Create certificate
+	certDER, err := x509.CreateCertificate(rand.Reader, &template, ps.caCert, &key.PublicKey, ps.caKey)
+	if err != nil {
+		return nil, err
+	}
+
+	// Create TLS certificate
+	cert := &tls.Certificate{
+		Certificate: [][]byte{certDER},
+		PrivateKey:  key,
+	}
+
+	return cert, nil
 }
 
 func main() {

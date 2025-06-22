@@ -1,7 +1,7 @@
 {
   "proxy": {
     "listen_addr": ":1234",
-    "transparent": true,
+    "transparent": false,
     "explicit_port": 3128,
     "buffer_size": 32768,
     "read_timeout_seconds": 30,
@@ -11,15 +11,18 @@
     "log_file": "proxy.log",
     "capture_dir": "captures",
     "max_file_size_mb": 100,
-    "enable_debug": false
+    "enable_debug": true
   },
   "rules": {
     "inspect_domains": [
+      "google.com",
+      "gamu.io",
       "example.com",
       "api.example.com",
       "*.suspicious.com",
       "test.internal",
-      "admin.company.local"
+      "admin.company.local",
+      "github.com"
     ],
     "inspect_source_ips": [
       "192.168.1.100",
@@ -38,7 +41,6 @@
     "bypass_source_ips": [
       "192.168.1.1",
       "10.0.0.1",
-      "127.0.0.1",
       "169.254.0.0/16"
     ]
   },
@@ -49,6 +51,7 @@
     "ca_key_file": "certs/ca.key",
     "cert_dir": "certs",
     "auto_generate": true,
-    "valid_days": 365
+    "valid_days": 365,
+    "upstream_cert_sniff": true
   }
 }

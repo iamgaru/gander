@@ -107,11 +107,224 @@ gen-ca:
 	@if [ ! -f $(CERT_DIR)/ca.key ]; then \
 		openssl genrsa -out $(CERT_DIR)/ca.key 4096; \
 		openssl req -new -x509 -days 365 -key $(CERT_DIR)/ca.key -out $(CERT_DIR)/ca.crt \
-			-subj "/C=US/ST=CA/L=San Francisco/O=Gander Proxy/CN=Gander Proxy CA"; \
+			-subj "/C=US/ST=CA/L=San Francisco/O=Gander Proxy/CN=Gander MITM CA"; \
 		echo "CA certificate generated in $(CERT_DIR)/"; \
 	else \
 		echo "CA certificate already exists"; \
 	fi
+
+# Trust CA certificate in system keychain (macOS)
+.PHONY: trust-ca-macos
+trust-ca-macos: gen-ca
+	@echo "Trusting CA certificate in macOS keychain..."
+	@if [ ! -f $(CERT_DIR)/ca.crt ]; then \
+		echo "ERROR: CA certificate not found. Run 'make gen-ca' first."; \
+		exit 1; \
+	fi
+	@echo "Adding CA certificate to macOS System keychain..."
+	sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain $(CERT_DIR)/ca.crt
+	@echo "✅ CA certificate trusted in macOS System keychain"
+	@echo "📋 You can verify with: security find-certificate -c 'Gander MITM CA' /Library/Keychains/System.keychain"
+
+# Trust CA certificate in system keychain (Linux)
+.PHONY: trust-ca-linux
+trust-ca-linux: gen-ca
+	@echo "Trusting CA certificate in Linux system store..."
+	@if [ ! -f $(CERT_DIR)/ca.crt ]; then \
+		echo "ERROR: CA certificate not found. Run 'make gen-ca' first."; \
+		exit 1; \
+	fi
+	@if [ -d /usr/local/share/ca-certificates ]; then \
+		sudo cp $(CERT_DIR)/ca.crt /usr/local/share/ca-certificates/gander-mitm-ca.crt; \
+		sudo update-ca-certificates; \
+		echo "✅ CA certificate trusted in Linux system store"; \
+	elif [ -d /etc/pki/ca-trust/source/anchors ]; then \
+		sudo cp $(CERT_DIR)/ca.crt /etc/pki/ca-trust/source/anchors/gander-mitm-ca.crt; \
+		sudo update-ca-trust; \
+		echo "✅ CA certificate trusted in Linux system store (RHEL/CentOS)"; \
+	else \
+		echo "❌ Unsupported Linux distribution for automatic CA trust"; \
+		echo "📋 Manual steps:"; \
+		echo "   1. Copy $(CERT_DIR)/ca.crt to your system's CA store"; \
+		echo "   2. Update the CA trust database"; \
+	fi
+
+# Trust CA certificate (auto-detect OS)
+.PHONY: trust-ca
+trust-ca:
+	@echo "Auto-detecting operating system..."
+	@if [ "$$(uname)" = "Darwin" ]; then \
+		echo "🍎 Detected macOS"; \
+		$(MAKE) trust-ca-macos; \
+	elif [ "$$(uname)" = "Linux" ]; then \
+		echo "🐧 Detected Linux"; \
+		$(MAKE) trust-ca-linux; \
+	else \
+		echo "❌ Unsupported operating system: $$(uname)"; \
+		echo "📋 Manual certificate trust required"; \
+		echo "   CA certificate location: $(CERT_DIR)/ca.crt"; \
+		exit 1; \
+	fi
+
+# Remove trusted CA certificate from system (macOS)
+.PHONY: untrust-ca-macos
+untrust-ca-macos:
+	@echo "Removing CA certificate from macOS keychain..."
+	@sudo security delete-certificate -c "Gander MITM CA" /Library/Keychains/System.keychain || echo "Certificate not found in keychain"
+	@echo "✅ CA certificate removed from macOS System keychain"
+
+# Remove trusted CA certificate from system (Linux)
+.PHONY: untrust-ca-linux
+untrust-ca-linux:
+	@echo "Removing CA certificate from Linux system store..."
+	@if [ -f /usr/local/share/ca-certificates/gander-mitm-ca.crt ]; then \
+		sudo rm -f /usr/local/share/ca-certificates/gander-mitm-ca.crt; \
+		sudo update-ca-certificates; \
+		echo "✅ CA certificate removed from Linux system store"; \
+	elif [ -f /etc/pki/ca-trust/source/anchors/gander-mitm-ca.crt ]; then \
+		sudo rm -f /etc/pki/ca-trust/source/anchors/gander-mitm-ca.crt; \
+		sudo update-ca-trust; \
+		echo "✅ CA certificate removed from Linux system store (RHEL/CentOS)"; \
+	else \
+		echo "❌ CA certificate not found in system store"; \
+	fi
+
+# Remove trusted CA certificate (auto-detect OS)
+.PHONY: untrust-ca
+untrust-ca:
+	@echo "Auto-detecting operating system..."
+	@if [ "$$(uname)" = "Darwin" ]; then \
+		echo "🍎 Detected macOS"; \
+		$(MAKE) untrust-ca-macos; \
+	elif [ "$$(uname)" = "Linux" ]; then \
+		echo "🐧 Detected Linux"; \
+		$(MAKE) untrust-ca-linux; \
+	else \
+		echo "❌ Unsupported operating system: $$(uname)"; \
+		echo "📋 Manual certificate removal required"; \
+		exit 1; \
+	fi
+
+# Setup MITM environment (generate CA + trust it)
+.PHONY: setup-mitm
+setup-mitm: setup gen-ca trust-ca
+	@echo ""
+	@echo "🎉 MITM environment setup complete!"
+	@echo ""
+	@echo "📋 Next steps:"
+	@echo "   1. Run: make run"
+	@echo "   2. Configure your browser/system to use proxy: localhost:1234"
+	@echo "   3. Browse to sites in your inspect_domains list"
+	@echo "   4. Check captures/ directory for intercepted requests"
+	@echo ""
+	@echo "🔒 Certificate info:"
+	@echo "   CA Certificate: $(CERT_DIR)/ca.crt"
+	@echo "   CA Private Key: $(CERT_DIR)/ca.key"
+	@echo ""
+
+# Verify CA certificate is trusted
+.PHONY: verify-ca
+verify-ca:
+	@echo "Verifying CA certificate trust status..."
+	@if [ "$$(uname)" = "Darwin" ]; then \
+		echo "🍎 Checking macOS keychain..."; \
+		if security find-certificate -c "Gander MITM CA" /Library/Keychains/System.keychain >/dev/null 2>&1; then \
+			echo "✅ CA certificate is trusted in macOS System keychain"; \
+			security find-certificate -p -c "Gander MITM CA" /Library/Keychains/System.keychain | openssl x509 -noout -subject -dates; \
+		else \
+			echo "❌ CA certificate not found in macOS System keychain"; \
+			echo "💡 Run: make trust-ca"; \
+		fi; \
+	elif [ "$$(uname)" = "Linux" ]; then \
+		echo "🐧 Checking Linux certificate store..."; \
+		if [ -f /usr/local/share/ca-certificates/gander-mitm-ca.crt ] || [ -f /etc/pki/ca-trust/source/anchors/gander-mitm-ca.crt ]; then \
+			echo "✅ CA certificate found in Linux system store"; \
+		else \
+			echo "❌ CA certificate not found in Linux system store"; \
+			echo "💡 Run: make trust-ca"; \
+		fi; \
+	else \
+		echo "❌ Unsupported operating system for verification"; \
+	fi
+
+# Test MITM proxy with trusted certificate
+.PHONY: test-mitm
+test-mitm:
+	@echo "🧪 Testing MITM proxy with trusted certificate..."
+	@echo ""
+	@echo "📋 Browser Testing (Recommended):"
+	@echo "   1. Configure browser proxy: localhost:1234"
+	@echo "   2. Visit: https://gamu.io or https://example.com"
+	@echo "   3. Certificate should be trusted (no warnings)"
+	@echo "   4. Check captures/ directory for intercepted requests"
+	@echo ""
+	@echo "📋 curl Testing (with CA bundle):"
+	@echo "   curl -x localhost:1234 --cacert $(CERT_DIR)/ca.crt https://gamu.io/"
+	@echo ""
+	@echo "📋 curl Testing (ignore cert - for testing only):"
+	@echo "   curl -x localhost:1234 -k https://gamu.io/"
+	@echo ""
+	@if [ -f $(CERT_DIR)/ca.crt ]; then \
+		echo "🔍 Testing with curl (using CA certificate)..."; \
+		curl -x localhost:1234 --cacert $(CERT_DIR)/ca.crt --connect-timeout 5 -s -o /dev/null -w "Status: %{http_code} | Time: %{time_total}s\n" https://example.com/ || echo "❌ Test failed - ensure gander is running"; \
+	fi
+
+# Fix Chrome certificate trust issues
+.PHONY: fix-chrome
+fix-chrome:
+	@echo "🔧 Fixing Chrome certificate trust issues..."
+	@echo ""
+	@echo "Step 1: Adding CA to both System and Login keychains..."
+	@sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain -p ssl $(CERT_DIR)/ca.crt
+	@security add-trusted-cert -d -r trustRoot -k ~/Library/Keychains/login.keychain-db -p ssl $(CERT_DIR)/ca.crt
+	@echo "✅ CA certificate added to keychains"
+	@echo ""
+	@echo "Step 2: Clearing Chrome's security cache..."
+	@rm -rf ~/Library/Application\ Support/Google/Chrome/Default/TransportSecurity
+	@rm -rf ~/Library/Application\ Support/Google/Chrome/Default/Certificate\ Revocation\ Lists
+	@echo "✅ Chrome security cache cleared"
+	@echo ""
+	@echo "Step 3: Killing Chrome processes..."
+	@pkill -f "Google Chrome" || echo "Chrome not running"
+	@echo "✅ Chrome processes terminated"
+	@echo ""
+	@echo "🎉 Chrome fix complete!"
+	@echo ""
+	@echo "📋 Next steps:"
+	@echo "   1. Start Chrome fresh"
+	@echo "   2. Configure proxy: System Preferences → Network → Advanced → Proxies"
+	@echo "   3. Set HTTP/HTTPS proxy to: localhost:1234"
+	@echo "   4. Visit https://gamu.io - should work without certificate warnings"
+	@echo ""
+	@echo "💡 If still having issues, try:"
+	@echo "   • Chrome → Settings → Privacy and security → Security → Manage certificates"
+	@echo "   • Look for 'Gander MITM CA' in System/Keychain Access"
+
+# Show MITM proxy usage instructions
+.PHONY: usage
+usage:
+	@echo "🚀 Gander MITM Proxy Usage Guide"
+	@echo ""
+	@echo "📋 Quick Start:"
+	@echo "   1. make setup-mitm    # Generate & trust CA certificate"
+	@echo "   2. make run           # Start the proxy"
+	@echo "   3. Configure proxy: localhost:1234"
+	@echo ""
+	@echo "🌐 Browser Configuration:"
+	@echo "   • Chrome/Safari: System Preferences → Network → Advanced → Proxies"
+	@echo "   • Firefox: Settings → Network Settings → Manual proxy configuration"
+	@echo "   • Set HTTP/HTTPS proxy: localhost:1234"
+	@echo ""
+	@echo "🔒 Certificate Trust Status:"
+	@$(MAKE) verify-ca
+	@echo ""
+	@echo "📁 Captured Requests: $(CAPTURE_DIR)/"
+	@echo "📄 Log File: $(LOG_FILE)"
+	@echo ""
+	@echo "🔧 Useful Commands:"
+	@echo "   make test-mitm        # Test proxy functionality"
+	@echo "   make logs            # View live logs"
+	@echo "   make clean-all       # Clean everything"
 
 # Run the proxy with default config
 .PHONY: run
@@ -239,6 +452,12 @@ help:
 	@echo "Setup targets:"
 	@echo "  setup         - Setup initial configuration and directories"
 	@echo "  gen-ca        - Generate CA certificate for testing"
+	@echo "  trust-ca      - Trust CA certificate in system keychain (auto-detect OS)"
+	@echo "  trust-ca-macos - Trust CA certificate in macOS keychain"
+	@echo "  trust-ca-linux - Trust CA certificate in Linux system store"
+	@echo "  setup-mitm    - Complete MITM setup (setup + gen-ca + trust-ca)"
+	@echo "  verify-ca     - Verify CA certificate trust status"
+	@echo "  untrust-ca    - Remove CA certificate from system trust (auto-detect OS)"
 	@echo "  check-deps    - Check system dependencies"
 	@echo ""
 	@echo "Runtime targets:"
