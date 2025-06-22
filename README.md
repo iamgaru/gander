@@ -86,6 +86,9 @@ A transparent, high-performance Man-in-the-Middle (MITM) proxy written in Go for
 - **HTTP/HTTPS Support**: Handles both plain and TLS encrypted traffic
 - **Certificate Management**: Automatic certificate generation with custom CA
 - **Comprehensive Logging**: Detailed connection logs and HTTP request capture
+- **HTTP Request/Response Capture**: Complete request/response pair capture with JSON export
+- **Response Parsing and Matching**: Automatic matching of HTTP responses to their requests
+- **Upstream Certificate Sniffing**: Mimics upstream server certificates for better compatibility
 
 ### Performance Optimizations
 - Buffer pooling for zero-allocation data copying
@@ -94,6 +97,8 @@ A transparent, high-performance Man-in-the-Middle (MITM) proxy written in Go for
 - Efficient SNI extraction without regex
 - Certificate caching for TLS performance
 - Configurable buffer sizes and timeouts
+- Optimized inspection vs fast relay decision making
+- Performance-optimized response parsing
 
 ### Security Features
 - Domain-based inspection rules
@@ -101,8 +106,10 @@ A transparent, high-performance Man-in-the-Middle (MITM) proxy written in Go for
 - Bypass rules for trusted domains/IPs
 - Custom CA certificate support
 - Automatic certificate generation and caching
+- Upstream certificate template matching for stealth operation
 - Structured logging for security analysis
 - HTTP request/response capture for forensics
+- Complete HTTPS traffic decryption and analysis
 
 ## Quick Start
 
@@ -236,10 +243,10 @@ make help          # Show all available commands (default target)
 Gander includes a comprehensive test suite to ensure reliability and performance:
 
 ### Test Files
-- **`gander_test.go`** - Core functionality tests (configuration, proxy logic, HTTP parsing)
-- **`cert_test.go`** - Certificate management and TLS operations
+- **`gander_test.go`** - Core functionality tests (configuration, proxy logic, HTTP parsing, response matching)
+- **`cert_test.go`** - Certificate management, TLS operations, and certificate trust functionality
 - **`config_test.go`** - Configuration validation and edge cases
-- **`utils_test.go`** - Utility functions and performance tests
+- **`utils_test.go`** - Utility functions, HTTP capture, and performance tests
 
 ### Running Tests
 ```bash
@@ -260,17 +267,23 @@ Current test coverage: **32.4%** of statements
 The test suite covers:
 - ✅ Configuration loading and validation
 - ✅ HTTP request parsing and inspection
+- ✅ HTTP response parsing and matching
+- ✅ Request/response capture and correlation
 - ✅ Rule matching (domains, IPs, bypass logic)
 - ✅ Certificate cache operations
-- ✅ Statistics tracking
+- ✅ Certificate trust functionality
+- ✅ Upstream certificate sniffing
+- ✅ Statistics tracking and performance monitoring
 - ✅ Error handling and edge cases
-- ✅ Performance benchmarks
+- ✅ Performance benchmarks for all critical functions
 
 ### Benchmark Results
 Key performance metrics on Apple M1 Max:
 - Certificate cache access: **14.03 ns/op**
 - Rule checking: **22.00 ns/op**
 - HTTP host extraction: **649.0 ns/op**
+- HTTP response parsing: **~1,500 ns/op**
+- Inspection decision making: **~25 ns/op**
 - Configuration loading: **27,348 ns/op**
 
 ## Continuous Integration
@@ -331,7 +344,8 @@ This automatically:
     "ca_key_file": "certs/ca.key",      // CA private key
     "cert_dir": "certs",                // Directory for generated certs
     "auto_generate": true,              // Auto-generate certificates
-    "valid_days": 365                   // Certificate validity period
+    "valid_days": 365,                  // Certificate validity period
+    "upstream_cert_sniff": true         // Mimic upstream server certificates
   }
 }
 ```
@@ -448,6 +462,41 @@ make gen-ca
 
 2. **Configure Auto-Generation**:
 Set `auto_generate: true` in the TLS configuration to automatically generate certificates for new domains.
+
+3. **Enable Upstream Certificate Sniffing**:
+Set `upstream_cert_sniff: true` to make generated certificates mimic the upstream server's certificate details for better stealth operation.
+
+### Upstream Certificate Sniffing
+
+This advanced feature enhances the stealth capabilities of the MITM proxy by making generated certificates closely match the upstream server's certificates:
+
+#### How It Works
+1. **Certificate Inspection**: When intercepting HTTPS traffic, Gander first connects to the upstream server to inspect its certificate
+2. **Template Extraction**: Extracts key details like Subject Alternative Names (SANs), Common Name, and Organization
+3. **Certificate Generation**: Generates a new certificate using the upstream certificate as a template
+4. **Stealth Operation**: The resulting certificate appears more legitimate to applications and security tools
+
+#### Benefits
+- **Reduced Detection**: Applications are less likely to detect the MITM operation
+- **Better Compatibility**: Mimics real certificate characteristics for improved compatibility
+- **Enhanced Analysis**: Provides insights into the actual certificates used by target servers
+
+#### Configuration
+```json
+{
+  "tls": {
+    "upstream_cert_sniff": true,
+    "auto_generate": true
+  }
+}
+```
+
+#### Debug Output
+When debug logging is enabled, you'll see detailed certificate information:
+```
+Sniffed upstream cert for google.com: CN=*.google.com, SAN=[*.google.com, google.com, ...], Org=[Google Trust Services]
+Generated certificate for google.com using upstream cert template: CN=google.com, SAN=[*.google.com, google.com, ...]
+```
 
 ### System Certificate Trust
 
@@ -587,6 +636,42 @@ certlm.msc  # Manual certificate manager
 # Or restart browser completely
 ```
 
+## HTTP Request/Response Capture
+
+### Enhanced Capture Features
+
+Gander provides comprehensive HTTP traffic capture with the following capabilities:
+
+- **Complete Request/Response Pairs**: Automatically matches HTTP responses to their corresponding requests
+- **Detailed Metadata Extraction**: Captures method, URL, path, query parameters, headers, and body content
+- **JSON Export Format**: All captures are saved as structured JSON for easy analysis
+- **Performance Optimized**: Minimal overhead for non-inspected traffic using fast relay mode
+- **Selective Capture**: Only captures traffic matching inspection rules
+
+### Capture File Naming
+
+Captured files use descriptive naming for easy identification:
+```
+2024-06-22_20-25-06.487_[127.0.0.1]_example.com_get_root.json
+2024-06-22_20-25-57.023_[127.0.0.1]_google.com_post__api_test.json
+```
+
+Format: `{timestamp}_{client_ip}_{domain}_{method}_{safe_path}.json`
+
+### Response Matching
+
+The system automatically correlates HTTP responses with their requests:
+
+1. **Request Capture**: When an HTTP request is intercepted, it's parsed and temporarily stored
+2. **Response Matching**: When the corresponding response arrives, it's matched to the request
+3. **Combined Export**: The complete request/response pair is saved as a single JSON file
+4. **Metadata Enhancement**: Additional fields like response status, headers, and timing are included
+
+### Supported HTTP Methods
+
+All standard HTTP methods are supported for capture:
+- GET, POST, PUT, DELETE, HEAD, OPTIONS, PATCH, TRACE, CONNECT
+
 ## Logging and Monitoring
 
 ### Connection Logs
@@ -595,7 +680,7 @@ certlm.msc  # Manual certificate manager
 ```
 
 ### HTTP Captures
-Inspected HTTP requests are saved as JSON files:
+Inspected HTTP requests and responses are saved as JSON files with complete request/response pairs:
 ```json
 {
   "timestamp": "2024-06-21T10:30:45.123Z",
@@ -603,12 +688,28 @@ Inspected HTTP requests are saved as JSON files:
   "domain": "example.com",
   "method": "GET",
   "url": "/api/data",
+  "path": "/api/data",
+  "query": "param=value",
+  "http_version": "HTTP/1.1",
   "headers": {
     "Host": "example.com",
     "User-Agent": "Mozilla/5.0...",
     "Authorization": "Bearer ..."
   },
-  "body": "request body content"
+  "body": "request body content",
+  "body_size": 20,
+  "content_type": "application/json",
+  "user_agent": "Mozilla/5.0...",
+  "referer": "https://example.com/",
+  "response": {
+    "status_code": 200,
+    "headers": {
+      "Content-Type": "application/json",
+      "Content-Length": "25",
+      "Server": "nginx/1.18.0"
+    },
+    "body": "{\"status\": \"success\"}"
+  }
 }
 ```
 
@@ -629,6 +730,12 @@ Real-time statistics logged every 30 seconds:
 ```
 Stats: 1250 total, 45 active, 87 inspected, 23 captured, 145 MB transferred
 ```
+
+- **Total**: Total connections processed since startup
+- **Active**: Currently active connections
+- **Inspected**: Connections that went through inspection (vs fast relay)
+- **Captured**: HTTP requests/responses captured to disk
+- **Transferred**: Total bytes transferred through the proxy
 
 ## Performance Tuning
 
@@ -741,6 +848,19 @@ Enable debug logging in configuration:
 }
 ```
 
+Debug mode provides detailed logging for:
+- **HTTP Request/Response Processing**: Detailed parsing and capture information
+- **Certificate Operations**: Upstream certificate sniffing and generation details
+- **Inspection Decisions**: Why traffic was inspected or bypassed
+- **Performance Metrics**: Timing information for critical operations
+
+Example debug output:
+```
+Captured GET /api/test from 192.168.1.100 to example.com (Headers: 5, Body: 25 bytes)
+Sniffed upstream cert for google.com: CN=*.google.com, SAN=[*.google.com, google.com]
+Captured response 200 for GET /api/test from 192.168.1.100 to example.com (Headers: 8, Body: 150 bytes)
+```
+
 ## Development
 
 ### Setting up Development Environment
@@ -808,6 +928,6 @@ For support and questions:
 | Field    | Value        |
 |----------|--------------|
 | Author   | Nick Conolly |
-| Version  | 0.0.1        |
+| Version  | 0.1.0        |
 | GitHub   | iamgaru      |
 | License  | MIT          |
