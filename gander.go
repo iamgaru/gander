@@ -467,6 +467,14 @@ func (ps *ProxyServer) saveCapture(capture *HTTPCapture) {
 
 // Handle HTTP inspection with enhanced request reconstruction
 func (ps *ProxyServer) inspectHTTP(data []byte, clientIP, domain string) {
+	capture := ps.inspectHTTPWithCapture(data, clientIP, domain)
+	if capture != nil {
+		ps.saveCapture(capture)
+	}
+}
+
+// Handle HTTP inspection and return the capture object (for use with response matching)
+func (ps *ProxyServer) inspectHTTPWithCapture(data []byte, clientIP, domain string) *HTTPCapture {
 	// Look for HTTP request start patterns
 	if !bytes.HasPrefix(data, []byte("GET ")) &&
 		!bytes.HasPrefix(data, []byte("POST ")) &&
@@ -477,7 +485,7 @@ func (ps *ProxyServer) inspectHTTP(data []byte, clientIP, domain string) {
 		!bytes.HasPrefix(data, []byte("PATCH ")) &&
 		!bytes.HasPrefix(data, []byte("TRACE ")) &&
 		!bytes.HasPrefix(data, []byte("CONNECT ")) {
-		return
+		return nil
 	}
 
 	// Parse the complete HTTP request as a single entity
@@ -486,7 +494,7 @@ func (ps *ProxyServer) inspectHTTP(data []byte, clientIP, domain string) {
 		if ps.config.Logging.EnableDebug {
 			log.Printf("Error parsing HTTP request: %v", err)
 		}
-		return
+		return nil
 	}
 
 	capture.ClientIP = clientIP
@@ -498,7 +506,7 @@ func (ps *ProxyServer) inspectHTTP(data []byte, clientIP, domain string) {
 			capture.Method, capture.URL, clientIP, domain, len(capture.Headers), capture.BodySize)
 	}
 
-	ps.saveCapture(capture)
+	return capture
 }
 
 // Fast relay without inspection
@@ -1024,20 +1032,40 @@ func (ps *ProxyServer) handleHTTPSInterception(clientConn net.Conn, domain strin
 	defer ps.bufferPool.Put(&buffer1)
 	defer ps.bufferPool.Put(&buffer2)
 
-	// Start bidirectional relay with inspection
+	// Start bidirectional relay - use inspection only if needed
 	done := make(chan bool, 2)
 
-	// Client -> Server (with inspection)
-	go func() {
-		ps.relayWithHTTPSInspection(serverConn, clientTLSConn, buffer1, &info.BytesRead, info.ClientIP, domain)
-		done <- true
-	}()
+	// Check if this connection should be inspected
+	shouldInspect := ps.shouldInspect(info.ClientIP, domain)
 
-	// Server -> Client (without inspection for responses)
-	go func() {
-		ps.relayFast(clientTLSConn, serverConn, buffer2, &info.BytesWrite)
-		done <- true
-	}()
+	if shouldInspect {
+		// Use inspection relays for capturing HTTP traffic
+		capturedRequests := make(chan *HTTPCapture, 10) // Buffer for captured requests
+
+		// Client -> Server (with inspection)
+		go func() {
+			ps.relayWithHTTPSInspection(serverConn, clientTLSConn, buffer1, &info.BytesRead, info.ClientIP, domain, capturedRequests)
+			close(capturedRequests) // Close channel when request relay ends
+			done <- true
+		}()
+
+		// Server -> Client (with response inspection)
+		go func() {
+			ps.relayWithHTTPSResponseInspection(clientTLSConn, serverConn, buffer2, &info.BytesWrite, info.ClientIP, domain, capturedRequests)
+			done <- true
+		}()
+	} else {
+		// Use fast relays for non-inspected traffic
+		go func() {
+			ps.relayFast(serverConn, clientTLSConn, buffer1, &info.BytesRead)
+			done <- true
+		}()
+
+		go func() {
+			ps.relayFast(clientTLSConn, serverConn, buffer2, &info.BytesWrite)
+			done <- true
+		}()
+	}
 
 	// Wait for completion
 	<-done
@@ -1055,7 +1083,7 @@ func (ps *ProxyServer) handleHTTPSInterception(clientConn net.Conn, domain strin
 }
 
 // Relay with HTTPS inspection (decrypted content)
-func (ps *ProxyServer) relayWithHTTPSInspection(dst, src net.Conn, buffer []byte, counter *int64, clientIP, domain string) {
+func (ps *ProxyServer) relayWithHTTPSInspection(dst, src net.Conn, buffer []byte, counter *int64, clientIP, domain string, capturedRequests chan *HTTPCapture) {
 	defer dst.Close()
 	defer src.Close()
 
@@ -1070,8 +1098,15 @@ func (ps *ProxyServer) relayWithHTTPSInspection(dst, src net.Conn, buffer []byte
 
 		*counter += int64(n)
 
-		// Inspect decrypted HTTPS data
-		ps.inspectHTTP(buffer[:n], clientIP, domain)
+		// Inspect decrypted HTTPS data and capture requests
+		if capture := ps.inspectHTTPWithCapture(buffer[:n], clientIP, domain); capture != nil {
+			// Send captured request to the response handler
+			select {
+			case capturedRequests <- capture:
+			default:
+				// Channel is full, skip
+			}
+		}
 
 		if err := dst.SetWriteDeadline(time.Now().Add(time.Duration(ps.config.Proxy.WriteTimeout) * time.Second)); err != nil {
 			return
@@ -1208,6 +1243,144 @@ func (ps *ProxyServer) generateCertForDomainWithSniffing(domain, serverAddr stri
 	}
 
 	return cert, nil
+}
+
+// Parse HTTP response with enhanced details
+func parseHTTPResponse(data []byte) (*HTTPResponse, error) {
+	// Find the end of headers (double CRLF)
+	headerEndIndex := bytes.Index(data, []byte("\r\n\r\n"))
+	if headerEndIndex == -1 {
+		// If no double CRLF found, treat entire data as headers (incomplete response)
+		headerEndIndex = len(data)
+	}
+
+	headerData := data[:headerEndIndex]
+	reader := bufio.NewReader(bytes.NewReader(headerData))
+
+	// Parse status line
+	statusLine, _, err := reader.ReadLine()
+	if err != nil {
+		return nil, err
+	}
+
+	statusParts := strings.Fields(string(statusLine))
+	if len(statusParts) < 2 {
+		return nil, fmt.Errorf("invalid HTTP response status line")
+	}
+
+	// Parse status code
+	statusCode, err := strconv.Atoi(statusParts[1])
+	if err != nil {
+		return nil, fmt.Errorf("invalid status code: %v", err)
+	}
+
+	response := &HTTPResponse{
+		StatusCode: statusCode,
+		Headers:    make(map[string]string),
+	}
+
+	// Parse headers
+	for {
+		line, _, err := reader.ReadLine()
+		if err != nil || len(line) == 0 {
+			break
+		}
+
+		headerLine := string(line)
+		if colonIdx := strings.Index(headerLine, ":"); colonIdx != -1 {
+			key := strings.TrimSpace(headerLine[:colonIdx])
+			value := strings.TrimSpace(headerLine[colonIdx+1:])
+
+			// Store all headers
+			response.Headers[key] = value
+		}
+	}
+
+	// Read body if present (after the double CRLF)
+	if headerEndIndex < len(data) && headerEndIndex+4 < len(data) {
+		bodyData := data[headerEndIndex+4:] // Skip the \r\n\r\n
+		if len(bodyData) > 0 {
+			// For binary data, we might want to base64 encode, but for now treat as string
+			response.Body = string(bodyData)
+		}
+	}
+
+	return response, nil
+}
+
+// Handle HTTP response inspection
+func (ps *ProxyServer) inspectHTTPResponse(data []byte, clientIP, domain string, requestCapture *HTTPCapture) {
+	// Look for HTTP response start patterns
+	if !bytes.HasPrefix(data, []byte("HTTP/1.0 ")) &&
+		!bytes.HasPrefix(data, []byte("HTTP/1.1 ")) &&
+		!bytes.HasPrefix(data, []byte("HTTP/2.0 ")) {
+		return
+	}
+
+	// Parse the HTTP response
+	response, err := parseHTTPResponse(data)
+	if err != nil {
+		if ps.config.Logging.EnableDebug {
+			log.Printf("Error parsing HTTP response: %v", err)
+		}
+		return
+	}
+
+	// If we have a matching request capture, attach the response to it
+	if requestCapture != nil {
+		requestCapture.Response = response
+
+		// Re-save the capture with the response included
+		ps.saveCapture(requestCapture)
+
+		if ps.config.Logging.EnableDebug {
+			log.Printf("Captured response %d for %s %s from %s to %s (Headers: %d, Body: %d bytes)",
+				response.StatusCode, requestCapture.Method, requestCapture.URL, clientIP, domain,
+				len(response.Headers), len(response.Body))
+		}
+	}
+}
+
+// Relay with HTTPS response inspection (for server -> client traffic)
+func (ps *ProxyServer) relayWithHTTPSResponseInspection(dst, src net.Conn, buffer []byte, counter *int64, clientIP, domain string, capturedRequests chan *HTTPCapture) {
+	defer dst.Close()
+	defer src.Close()
+
+	var currentRequest *HTTPCapture
+
+	for {
+		if err := src.SetReadDeadline(time.Now().Add(time.Duration(ps.config.Proxy.ReadTimeout) * time.Second)); err != nil {
+			return
+		}
+		n, err := src.Read(buffer)
+		if err != nil {
+			return
+		}
+
+		*counter += int64(n)
+
+		// Try to get a captured request if we don't have one
+		if currentRequest == nil {
+			select {
+			case req, ok := <-capturedRequests:
+				if ok {
+					currentRequest = req
+				}
+			default:
+				// No request available yet
+			}
+		}
+
+		// Inspect HTTP response data
+		ps.inspectHTTPResponse(buffer[:n], clientIP, domain, currentRequest)
+
+		if err := dst.SetWriteDeadline(time.Now().Add(time.Duration(ps.config.Proxy.WriteTimeout) * time.Second)); err != nil {
+			return
+		}
+		if _, err = dst.Write(buffer[:n]); err != nil {
+			return
+		}
+	}
 }
 
 func main() {

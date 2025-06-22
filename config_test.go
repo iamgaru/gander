@@ -214,13 +214,14 @@ func TestTLSConfig(t *testing.T) {
 			CaptureDir: filepath.Join(tempDir, "captures"),
 		},
 		TLS: struct {
-			CertFile     string `json:"cert_file"`
-			KeyFile      string `json:"key_file"`
-			CAFile       string `json:"ca_file"`
-			CAKeyFile    string `json:"ca_key_file"`
-			CertDir      string `json:"cert_dir"`
-			AutoGenerate bool   `json:"auto_generate"`
-			ValidDays    int    `json:"valid_days"`
+			CertFile          string `json:"cert_file"`
+			KeyFile           string `json:"key_file"`
+			CAFile            string `json:"ca_file"`
+			CAKeyFile         string `json:"ca_key_file"`
+			CertDir           string `json:"cert_dir"`
+			AutoGenerate      bool   `json:"auto_generate"`
+			ValidDays         int    `json:"valid_days"`
+			UpstreamCertSniff bool   `json:"upstream_cert_sniff"`
 		}{
 			CertFile:     "proxy.crt",
 			KeyFile:      "proxy.key",

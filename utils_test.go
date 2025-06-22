@@ -22,6 +22,22 @@ func TestSaveCapture(t *testing.T) {
 			LogFile:    filepath.Join(tempDir, "test.log"),
 			CaptureDir: filepath.Join(tempDir, "captures"),
 		},
+		TLS: struct {
+			CertFile          string `json:"cert_file"`
+			KeyFile           string `json:"key_file"`
+			CAFile            string `json:"ca_file"`
+			CAKeyFile         string `json:"ca_key_file"`
+			CertDir           string `json:"cert_dir"`
+			AutoGenerate      bool   `json:"auto_generate"`
+			ValidDays         int    `json:"valid_days"`
+			UpstreamCertSniff bool   `json:"upstream_cert_sniff"`
+		}{
+			CertDir:      filepath.Join(tempDir, "certs"),
+			CAFile:       filepath.Join(tempDir, "certs", "ca.crt"),
+			CAKeyFile:    filepath.Join(tempDir, "certs", "ca.key"),
+			AutoGenerate: true,
+			ValidDays:    365,
+		},
 	}
 
 	proxy, err := NewProxyServer(config)
@@ -78,6 +94,22 @@ func TestInspectHTTP(t *testing.T) {
 		}{
 			LogFile:    filepath.Join(tempDir, "test.log"),
 			CaptureDir: filepath.Join(tempDir, "captures"),
+		},
+		TLS: struct {
+			CertFile          string `json:"cert_file"`
+			KeyFile           string `json:"key_file"`
+			CAFile            string `json:"ca_file"`
+			CAKeyFile         string `json:"ca_key_file"`
+			CertDir           string `json:"cert_dir"`
+			AutoGenerate      bool   `json:"auto_generate"`
+			ValidDays         int    `json:"valid_days"`
+			UpstreamCertSniff bool   `json:"upstream_cert_sniff"`
+		}{
+			CertDir:      filepath.Join(tempDir, "certs"),
+			CAFile:       filepath.Join(tempDir, "certs", "ca.crt"),
+			CAKeyFile:    filepath.Join(tempDir, "certs", "ca.key"),
+			AutoGenerate: true,
+			ValidDays:    365,
 		},
 	}
 
@@ -165,6 +197,22 @@ func TestLogConnection(t *testing.T) {
 			LogFile:    logFile,
 			CaptureDir: filepath.Join(tempDir, "captures"),
 		},
+		TLS: struct {
+			CertFile          string `json:"cert_file"`
+			KeyFile           string `json:"key_file"`
+			CAFile            string `json:"ca_file"`
+			CAKeyFile         string `json:"ca_key_file"`
+			CertDir           string `json:"cert_dir"`
+			AutoGenerate      bool   `json:"auto_generate"`
+			ValidDays         int    `json:"valid_days"`
+			UpstreamCertSniff bool   `json:"upstream_cert_sniff"`
+		}{
+			CertDir:      filepath.Join(tempDir, "certs"),
+			CAFile:       filepath.Join(tempDir, "certs", "ca.crt"),
+			CAKeyFile:    filepath.Join(tempDir, "certs", "ca.key"),
+			AutoGenerate: true,
+			ValidDays:    365,
+		},
 	}
 
 	proxy, err := NewProxyServer(config)
@@ -243,6 +291,22 @@ func TestRuleEdgeCases(t *testing.T) {
 			BypassDomains:  []string{"GOOGLE.COM"},
 			BypassIPs:      []string{"127.0.0.1"},
 		},
+		TLS: struct {
+			CertFile          string `json:"cert_file"`
+			KeyFile           string `json:"key_file"`
+			CAFile            string `json:"ca_file"`
+			CAKeyFile         string `json:"ca_key_file"`
+			CertDir           string `json:"cert_dir"`
+			AutoGenerate      bool   `json:"auto_generate"`
+			ValidDays         int    `json:"valid_days"`
+			UpstreamCertSniff bool   `json:"upstream_cert_sniff"`
+		}{
+			CertDir:      filepath.Join(tempDir, "certs"),
+			CAFile:       filepath.Join(tempDir, "certs", "ca.crt"),
+			CAKeyFile:    filepath.Join(tempDir, "certs", "ca.key"),
+			AutoGenerate: true,
+			ValidDays:    365,
+		},
 	}
 
 	proxy, err := NewProxyServer(config)
@@ -302,6 +366,22 @@ func TestBufferPool(t *testing.T) {
 		}{
 			LogFile:    filepath.Join(tempDir, "test.log"),
 			CaptureDir: filepath.Join(tempDir, "captures"),
+		},
+		TLS: struct {
+			CertFile          string `json:"cert_file"`
+			KeyFile           string `json:"key_file"`
+			CAFile            string `json:"ca_file"`
+			CAKeyFile         string `json:"ca_key_file"`
+			CertDir           string `json:"cert_dir"`
+			AutoGenerate      bool   `json:"auto_generate"`
+			ValidDays         int    `json:"valid_days"`
+			UpstreamCertSniff bool   `json:"upstream_cert_sniff"`
+		}{
+			CertDir:      filepath.Join(tempDir, "certs"),
+			CAFile:       filepath.Join(tempDir, "certs", "ca.crt"),
+			CAKeyFile:    filepath.Join(tempDir, "certs", "ca.key"),
+			AutoGenerate: true,
+			ValidDays:    365,
 		},
 	}
 
@@ -376,6 +456,22 @@ func BenchmarkRuleChecking(b *testing.B) {
 		}{
 			InspectDomains: inspectDomains,
 			InspectIPs:     inspectIPs,
+		},
+		TLS: struct {
+			CertFile          string `json:"cert_file"`
+			KeyFile           string `json:"key_file"`
+			CAFile            string `json:"ca_file"`
+			CAKeyFile         string `json:"ca_key_file"`
+			CertDir           string `json:"cert_dir"`
+			AutoGenerate      bool   `json:"auto_generate"`
+			ValidDays         int    `json:"valid_days"`
+			UpstreamCertSniff bool   `json:"upstream_cert_sniff"`
+		}{
+			CertDir:      filepath.Join(tempDir, "certs"),
+			CAFile:       filepath.Join(tempDir, "certs", "ca.crt"),
+			CAKeyFile:    filepath.Join(tempDir, "certs", "ca.key"),
+			AutoGenerate: true,
+			ValidDays:    365,
 		},
 	}
 
