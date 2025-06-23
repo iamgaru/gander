@@ -10,7 +10,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Release](https://img.shields.io/github/release/iamgaru/gander.svg)](https://github.com/iamgaru/gander/releases/latest)
 
-A transparent, high-performance Man-in-the-Middle (MITM) proxy written in Go for selective traffic inspection and logging. Designed for network security monitoring, debugging, and traffic analysis with minimal latency overhead.
+A high-performance packet filter and transparent proxy written in Go for selective inspection and logging. Designed for network security monitoring, filtering, debugging, and traffic analysis with minimal latency overhead.
 
 ## Table of Contents
 
@@ -969,6 +969,6 @@ For support and questions:
 | Field    | Value        |
 |----------|--------------|
 | Author   | Nick Conolly |
-| Version  | 0.1.0        |
+| Version  | 0.1.1        |
 | GitHub   | iamgaru      |
 | License  | MIT          |
