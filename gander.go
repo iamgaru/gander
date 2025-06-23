@@ -48,15 +48,30 @@ type Config struct {
 	} `json:"rules"`
 
 	TLS struct {
-		CertFile          string `json:"cert_file"`
-		KeyFile           string `json:"key_file"`
-		CAFile            string `json:"ca_file"`
-		CAKeyFile         string `json:"ca_key_file"`
-		CertDir           string `json:"cert_dir"`
-		AutoGenerate      bool   `json:"auto_generate"`
-		ValidDays         int    `json:"valid_days"`
-		UpstreamCertSniff bool   `json:"upstream_cert_sniff"`
+		CertFile          string             `json:"cert_file"`
+		KeyFile           string             `json:"key_file"`
+		CAFile            string             `json:"ca_file"`
+		CAKeyFile         string             `json:"ca_key_file"`
+		CertDir           string             `json:"cert_dir"`
+		AutoGenerate      bool               `json:"auto_generate"`
+		ValidDays         int                `json:"valid_days"`
+		UpstreamCertSniff bool               `json:"upstream_cert_sniff"`
+		CertProfile       string             `json:"cert_profile"` // "minimal" or "custom"
+		CustomDetails     *CertCustomDetails `json:"custom_details,omitempty"`
 	} `json:"tls"`
+}
+
+// Certificate customization details for stealth mode
+type CertCustomDetails struct {
+	Organization       []string `json:"organization,omitempty"`
+	OrganizationalUnit []string `json:"organizational_unit,omitempty"`
+	Country            []string `json:"country,omitempty"`
+	Province           []string `json:"province,omitempty"`
+	Locality           []string `json:"locality,omitempty"`
+	StreetAddress      []string `json:"street_address,omitempty"`
+	PostalCode         []string `json:"postal_code,omitempty"`
+	CommonName         string   `json:"common_name,omitempty"`
+	EmailAddress       []string `json:"email_address,omitempty"`
 }
 
 // Proxy server structure
@@ -944,24 +959,66 @@ func (ps *ProxyServer) generateCA(certFile, keyFile string) error {
 		return err
 	}
 
-	// Create certificate template
-	template := x509.Certificate{
-		SerialNumber: big.NewInt(1),
-		Subject: pkix.Name{
-			Organization:  []string{"Gander MITM Proxy"},
-			Country:       []string{"US"},
-			Province:      []string{""},
-			Locality:      []string{""},
-			StreetAddress: []string{""},
-			PostalCode:    []string{""},
-			CommonName:    "Gander MITM CA",
-		},
-		NotBefore:             time.Now(),
-		NotAfter:              time.Now().Add(time.Duration(ps.config.TLS.ValidDays*24) * time.Hour),
-		KeyUsage:              x509.KeyUsageKeyEncipherment | x509.KeyUsageDigitalSignature | x509.KeyUsageCertSign,
-		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
-		BasicConstraintsValid: true,
-		IsCA:                  true,
+	// Determine certificate profile
+	profile := ps.config.TLS.CertProfile
+	if profile == "" {
+		profile = "minimal" // Default to minimal
+	}
+
+	// Create certificate template with appropriate details
+	var template x509.Certificate
+
+	switch profile {
+	case "custom":
+		if ps.config.TLS.CustomDetails == nil {
+			return fmt.Errorf("custom certificate profile selected but no custom_details provided")
+		}
+
+		details := ps.config.TLS.CustomDetails
+		template = x509.Certificate{
+			SerialNumber: big.NewInt(1),
+			Subject: pkix.Name{
+				Organization:       details.Organization,
+				OrganizationalUnit: details.OrganizationalUnit,
+				Country:            details.Country,
+				Province:           details.Province,
+				Locality:           details.Locality,
+				StreetAddress:      details.StreetAddress,
+				PostalCode:         details.PostalCode,
+				CommonName:         details.CommonName,
+			},
+			NotBefore:             time.Now(),
+			NotAfter:              time.Now().Add(time.Duration(ps.config.TLS.ValidDays*24) * time.Hour),
+			KeyUsage:              x509.KeyUsageKeyEncipherment | x509.KeyUsageDigitalSignature | x509.KeyUsageCertSign,
+			ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+			BasicConstraintsValid: true,
+			IsCA:                  true,
+		}
+
+		// Add email addresses if provided
+		if len(details.EmailAddress) > 0 {
+			template.EmailAddresses = details.EmailAddress
+		}
+
+	default: // "minimal" or any other value defaults to minimal
+		template = x509.Certificate{
+			SerialNumber: big.NewInt(1),
+			Subject: pkix.Name{
+				Organization:  []string{"Gander MITM Proxy"},
+				Country:       []string{"US"},
+				Province:      []string{""},
+				Locality:      []string{""},
+				StreetAddress: []string{""},
+				PostalCode:    []string{""},
+				CommonName:    "Gander MITM CA",
+			},
+			NotBefore:             time.Now(),
+			NotAfter:              time.Now().Add(time.Duration(ps.config.TLS.ValidDays*24) * time.Hour),
+			KeyUsage:              x509.KeyUsageKeyEncipherment | x509.KeyUsageDigitalSignature | x509.KeyUsageCertSign,
+			ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+			BasicConstraintsValid: true,
+			IsCA:                  true,
+		}
 	}
 
 	// Create certificate
@@ -1004,7 +1061,7 @@ func (ps *ProxyServer) generateCA(certFile, keyFile string) error {
 		return err
 	}
 
-	log.Printf("Generated CA certificate: %s", ps.caCert.Subject.CommonName)
+	log.Printf("Generated CA certificate (%s profile): %s", profile, ps.caCert.Subject.CommonName)
 	return nil
 }
 

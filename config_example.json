@@ -1,7 +1,7 @@
 {
   "proxy": {
-    "listen_addr": ":8080",
-    "transparent": true,
+    "listen_addr": ":1234",
+    "transparent": false,
     "explicit_port": 3128,
     "buffer_size": 32768,
     "read_timeout_seconds": 30,
@@ -28,27 +28,46 @@
       "192.168.100.0/24"
     ],
     "bypass_domains": [
-      "update.microsoft.com",
-      "download.windowsupdate.com",
+      "*.apple.com",
       "*.cloudflare.com",
       "*.googleapis.com",
-      "*.apple.com",
+      "download.windowsupdate.com",
+      "update.microsoft.com",
       "ocsp.*.com"
     ],
     "bypass_source_ips": [
-      "192.168.1.1",
       "10.0.0.1",
-      "127.0.0.1",
+      "192.168.1.1",
       "169.254.0.0/16"
     ]
   },
   "tls": {
-    "cert_file": "certs/proxy.crt",
-    "key_file": "certs/proxy.key",
+    "cert_file": "",
+    "key_file": "",
     "ca_file": "certs/ca.crt",
     "ca_key_file": "certs/ca.key",
     "cert_dir": "certs",
     "auto_generate": true,
-    "valid_days": 365
+    "valid_days": 365,
+    "upstream_cert_sniff": true,
+    
+    "_comment_cert_profile": "Certificate profile options:",
+    "_comment_minimal": "  'minimal' - Basic certificate with minimal details (default)",
+    "_comment_custom": "  'custom' - Detailed certificate for stealth operations",
+    
+    "cert_profile": "custom",
+    
+    "_comment_custom_details": "Custom certificate details (only used when cert_profile = 'custom'):",
+    "custom_details": {
+      "organization": ["Acme Corporation"],
+      "organizational_unit": ["IT Security", "Network Operations"],
+      "country": ["US"],
+      "province": ["California"],
+      "locality": ["San Francisco"],
+      "street_address": ["123 Market Street"],
+      "postal_code": ["94105"],
+      "common_name": "Acme Security CA",
+      "email_address": ["security@acme.corp"]
+    }
   }
 }

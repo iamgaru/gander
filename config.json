@@ -48,13 +48,25 @@
     ]
   },
   "tls": {
-    "cert_file": "certs/proxy.crt",
-    "key_file": "certs/proxy.key",
+    "cert_file": "",
+    "key_file": "",
     "ca_file": "certs/ca.crt",
     "ca_key_file": "certs/ca.key",
     "cert_dir": "certs",
     "auto_generate": true,
     "valid_days": 365,
-    "upstream_cert_sniff": true
+    "upstream_cert_sniff": true,
+    "cert_profile": "custom",
+    "custom_details": {
+      "organization": ["Gamu Corporation"],
+      "organizational_unit": ["IT Security", "Network Operations"],
+      "country": ["US"],
+      "province": ["California"],
+      "locality": ["San Francisco"],
+      "street_address": ["123 Market Street"],
+      "postal_code": ["94105"],
+      "common_name": "Gamu Security CA",
+      "email_address": ["security@gamu.io"]
+    }
   }
 }
