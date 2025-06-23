@@ -24,7 +24,12 @@
       "*.suspicious.com",
       "test.internal",
       "admin.company.local",
-      "github.com"
+      "github.com",
+      "www.google.com",
+      "www.example.com",
+      "www.gamu.io",
+      "www.youtube.com",
+      "www.reddit.com"
     ],
     "inspect_source_ips": [
       "192.168.1.100",
