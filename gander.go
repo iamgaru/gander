@@ -944,9 +944,17 @@ func (ps *ProxyServer) loadCA(certFile, keyFile string) error {
 		return fmt.Errorf("failed to parse key PEM")
 	}
 
-	ps.caKey, err = x509.ParsePKCS1PrivateKey(block.Bytes)
-	if err != nil {
-		return err
+	// Try PKCS1 first, then PKCS8 if that fails
+	if key, err := x509.ParsePKCS1PrivateKey(block.Bytes); err == nil {
+		ps.caKey = key
+	} else if key, err := x509.ParsePKCS8PrivateKey(block.Bytes); err == nil {
+		if rsaKey, ok := key.(*rsa.PrivateKey); ok {
+			ps.caKey = rsaKey
+		} else {
+			return fmt.Errorf("parsed key is not an RSA private key")
+		}
+	} else {
+		return fmt.Errorf("failed to parse private key: %v", err)
 	}
 
 	log.Printf("Loaded CA certificate: %s", ps.caCert.Subject.CommonName)
