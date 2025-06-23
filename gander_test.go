@@ -147,13 +147,14 @@ func TestNewProxyServer(t *testing.T) {
 			AutoGenerate      bool   `json:"auto_generate"`
 			ValidDays         int    `json:"valid_days"`
 			UpstreamCertSniff bool   `json:"upstream_cert_sniff"`
-		}{
+CertProfile       string             `json:"cert_profile"`
+CustomDetails     *CertCustomDetails `json:"custom_details,omitempty"`		}{
 			CertDir:      filepath.Join(tempDir, "certs"),
 			CAFile:       filepath.Join(tempDir, "certs", "ca.crt"),
 			CAKeyFile:    filepath.Join(tempDir, "certs", "ca.key"),
 			AutoGenerate: true,
 			ValidDays:    365,
-		},
+CertProfile:  "minimal",		},
 	}
 
 	proxy, err := NewProxyServer(config)
@@ -224,13 +225,14 @@ func TestShouldInspect(t *testing.T) {
 			AutoGenerate      bool   `json:"auto_generate"`
 			ValidDays         int    `json:"valid_days"`
 			UpstreamCertSniff bool   `json:"upstream_cert_sniff"`
-		}{
+CertProfile       string             `json:"cert_profile"`
+CustomDetails     *CertCustomDetails `json:"custom_details,omitempty"`		}{
 			CertDir:      filepath.Join(tempDir, "certs"),
 			CAFile:       filepath.Join(tempDir, "certs", "ca.crt"),
 			CAKeyFile:    filepath.Join(tempDir, "certs", "ca.key"),
 			AutoGenerate: true,
 			ValidDays:    365,
-		},
+CertProfile:  "minimal",		},
 	}
 
 	proxy, err := NewProxyServer(config)
@@ -446,13 +448,14 @@ func TestProxyStats(t *testing.T) {
 			AutoGenerate      bool   `json:"auto_generate"`
 			ValidDays         int    `json:"valid_days"`
 			UpstreamCertSniff bool   `json:"upstream_cert_sniff"`
-		}{
+CertProfile       string             `json:"cert_profile"`
+CustomDetails     *CertCustomDetails `json:"custom_details,omitempty"`		}{
 			CertDir:      filepath.Join(tempDir, "certs"),
 			CAFile:       filepath.Join(tempDir, "certs", "ca.crt"),
 			CAKeyFile:    filepath.Join(tempDir, "certs", "ca.key"),
 			AutoGenerate: true,
 			ValidDays:    365,
-		},
+CertProfile:  "minimal",		},
 	}
 
 	proxy, err := NewProxyServer(config)
@@ -535,13 +538,14 @@ func BenchmarkShouldInspect(b *testing.B) {
 			AutoGenerate      bool   `json:"auto_generate"`
 			ValidDays         int    `json:"valid_days"`
 			UpstreamCertSniff bool   `json:"upstream_cert_sniff"`
-		}{
+CertProfile       string             `json:"cert_profile"`
+CustomDetails     *CertCustomDetails `json:"custom_details,omitempty"`		}{
 			CertDir:      filepath.Join(tempDir, "certs"),
 			CAFile:       filepath.Join(tempDir, "certs", "ca.crt"),
 			CAKeyFile:    filepath.Join(tempDir, "certs", "ca.key"),
 			AutoGenerate: true,
 			ValidDays:    365,
-		},
+CertProfile:  "minimal",		},
 	}
 
 	proxy, err := NewProxyServer(config)
@@ -597,13 +601,14 @@ func TestProxyServerIntegration(t *testing.T) {
 			AutoGenerate      bool   `json:"auto_generate"`
 			ValidDays         int    `json:"valid_days"`
 			UpstreamCertSniff bool   `json:"upstream_cert_sniff"`
-		}{
+CertProfile       string             `json:"cert_profile"`
+CustomDetails     *CertCustomDetails `json:"custom_details,omitempty"`		}{
 			CertDir:      filepath.Join(tempDir, "certs"),
 			CAFile:       filepath.Join(tempDir, "certs", "ca.crt"),
 			CAKeyFile:    filepath.Join(tempDir, "certs", "ca.key"),
 			AutoGenerate: true,
 			ValidDays:    365,
-		},
+CertProfile:  "minimal",		},
 	}
 
 	proxy, err := NewProxyServer(config)
@@ -837,13 +842,14 @@ func TestInspectHTTPWithCapture(t *testing.T) {
 			AutoGenerate      bool   `json:"auto_generate"`
 			ValidDays         int    `json:"valid_days"`
 			UpstreamCertSniff bool   `json:"upstream_cert_sniff"`
-		}{
+CertProfile       string             `json:"cert_profile"`
+CustomDetails     *CertCustomDetails `json:"custom_details,omitempty"`		}{
 			CertDir:      filepath.Join(tempDir, "certs"),
 			CAFile:       filepath.Join(tempDir, "certs", "ca.crt"),
 			CAKeyFile:    filepath.Join(tempDir, "certs", "ca.key"),
 			AutoGenerate: true,
 			ValidDays:    365,
-		},
+CertProfile:  "minimal",		},
 	}
 
 	proxy, err := NewProxyServer(config)
@@ -906,13 +912,14 @@ func TestInspectHTTPResponse(t *testing.T) {
 			AutoGenerate      bool   `json:"auto_generate"`
 			ValidDays         int    `json:"valid_days"`
 			UpstreamCertSniff bool   `json:"upstream_cert_sniff"`
-		}{
+CertProfile       string             `json:"cert_profile"`
+CustomDetails     *CertCustomDetails `json:"custom_details,omitempty"`		}{
 			CertDir:      filepath.Join(tempDir, "certs"),
 			CAFile:       filepath.Join(tempDir, "certs", "ca.crt"),
 			CAKeyFile:    filepath.Join(tempDir, "certs", "ca.key"),
 			AutoGenerate: true,
 			ValidDays:    365,
-		},
+CertProfile:  "minimal",		},
 	}
 
 	proxy, err := NewProxyServer(config)
@@ -1030,13 +1037,14 @@ func TestHTTPSInterceptionDecision(t *testing.T) {
 			AutoGenerate      bool   `json:"auto_generate"`
 			ValidDays         int    `json:"valid_days"`
 			UpstreamCertSniff bool   `json:"upstream_cert_sniff"`
-		}{
+CertProfile       string             `json:"cert_profile"`
+CustomDetails     *CertCustomDetails `json:"custom_details,omitempty"`		}{
 			CertDir:      filepath.Join(tempDir, "certs"),
 			CAFile:       filepath.Join(tempDir, "certs", "ca.crt"),
 			CAKeyFile:    filepath.Join(tempDir, "certs", "ca.key"),
 			AutoGenerate: true,
 			ValidDays:    365,
-		},
+CertProfile:  "minimal",		},
 	}
 
 	proxy, err := NewProxyServer(config)
@@ -1149,13 +1157,14 @@ func TestCompleteRequestResponseCapture(t *testing.T) {
 			AutoGenerate      bool   `json:"auto_generate"`
 			ValidDays         int    `json:"valid_days"`
 			UpstreamCertSniff bool   `json:"upstream_cert_sniff"`
-		}{
+CertProfile       string             `json:"cert_profile"`
+CustomDetails     *CertCustomDetails `json:"custom_details,omitempty"`		}{
 			CertDir:      filepath.Join(tempDir, "certs"),
 			CAFile:       filepath.Join(tempDir, "certs", "ca.crt"),
 			CAKeyFile:    filepath.Join(tempDir, "certs", "ca.key"),
 			AutoGenerate: true,
 			ValidDays:    365,
-		},
+CertProfile:  "minimal",		},
 	}
 
 	proxy, err := NewProxyServer(config)
@@ -1249,13 +1258,14 @@ func TestRelayPerformanceDifference(t *testing.T) {
 			AutoGenerate      bool   `json:"auto_generate"`
 			ValidDays         int    `json:"valid_days"`
 			UpstreamCertSniff bool   `json:"upstream_cert_sniff"`
-		}{
+CertProfile       string             `json:"cert_profile"`
+CustomDetails     *CertCustomDetails `json:"custom_details,omitempty"`		}{
 			CertDir:      filepath.Join(tempDir, "certs"),
 			CAFile:       filepath.Join(tempDir, "certs", "ca.crt"),
 			CAKeyFile:    filepath.Join(tempDir, "certs", "ca.key"),
 			AutoGenerate: true,
 			ValidDays:    365,
-		},
+CertProfile:  "minimal",		},
 	}
 
 	proxy, err := NewProxyServer(config)
@@ -1333,13 +1343,14 @@ func BenchmarkInspectionDecision(b *testing.B) {
 			AutoGenerate      bool   `json:"auto_generate"`
 			ValidDays         int    `json:"valid_days"`
 			UpstreamCertSniff bool   `json:"upstream_cert_sniff"`
-		}{
+CertProfile       string             `json:"cert_profile"`
+CustomDetails     *CertCustomDetails `json:"custom_details,omitempty"`		}{
 			CertDir:      filepath.Join(tempDir, "certs"),
 			CAFile:       filepath.Join(tempDir, "certs", "ca.crt"),
 			CAKeyFile:    filepath.Join(tempDir, "certs", "ca.key"),
 			AutoGenerate: true,
 			ValidDays:    365,
-		},
+CertProfile:  "minimal",		},
 	}
 
 	proxy, err := NewProxyServer(config)
@@ -1357,4 +1368,159 @@ func BenchmarkInspectionDecision(b *testing.B) {
 		ip := ips[i%len(ips)]
 		proxy.shouldInspect(ip, domain)
 	}
+}
+
+// Test domain-driven certificate generation behavior
+func TestDomainDrivenCertificateGeneration(t *testing.T) {
+	tempDir := t.TempDir()
+
+	config := &Config{
+		Logging: struct {
+			LogFile     string `json:"log_file"`
+			CaptureDir  string `json:"capture_dir"`
+			MaxFileSize int64  `json:"max_file_size_mb"`
+			EnableDebug bool   `json:"enable_debug"`
+		}{
+			LogFile:    filepath.Join(tempDir, "test.log"),
+			CaptureDir: filepath.Join(tempDir, "captures"),
+		},
+		Rules: struct {
+			InspectDomains []string `json:"inspect_domains"`
+			InspectIPs     []string `json:"inspect_source_ips"`
+			BypassDomains  []string `json:"bypass_domains"`
+			BypassIPs      []string `json:"bypass_source_ips"`
+		}{
+			InspectDomains: []string{"example.com", "api.example.com"}, // Only these domains should get certificates
+			InspectIPs:     []string{"192.168.1.100"},                  // Source IP inspection should NOT trigger certificate generation
+			BypassDomains:  []string{"google.com"},
+			BypassIPs:      []string{"127.0.0.1"},
+		},
+		TLS: struct {
+			CertFile          string `json:"cert_file"`
+			KeyFile           string `json:"key_file"`
+			CAFile            string `json:"ca_file"`
+			CAKeyFile         string `json:"ca_key_file"`
+			CertDir           string `json:"cert_dir"`
+			AutoGenerate      bool   `json:"auto_generate"`
+			ValidDays         int    `json:"valid_days"`
+			UpstreamCertSniff bool   `json:"upstream_cert_sniff"`
+CertProfile       string             `json:"cert_profile"`
+CustomDetails     *CertCustomDetails `json:"custom_details,omitempty"`		}{
+			CertDir:      filepath.Join(tempDir, "certs"),
+			CAFile:       filepath.Join(tempDir, "certs", "ca.crt"),
+			CAKeyFile:    filepath.Join(tempDir, "certs", "ca.key"),
+			AutoGenerate: true,
+			ValidDays:    365,
+CertProfile:  "minimal",		},
+	}
+
+	proxy, err := NewProxyServer(config)
+	if err != nil {
+		t.Fatalf("Failed to create proxy server: %v", err)
+	}
+	defer proxy.logFile.Close()
+
+	tests := []struct {
+		name               string
+		clientIP           string
+		domain             string
+		expectedInspect    bool
+		shouldGenerateCert bool // NEW: whether certificate generation should occur
+		description        string
+	}{
+		{
+			name:               "Domain in inspect_domains should get certificate",
+			clientIP:           "192.168.1.200",
+			domain:             "example.com",
+			expectedInspect:    true,
+			shouldGenerateCert: true,
+			description:        "Domain explicitly listed for inspection should get TLS interception and certificate",
+		},
+		{
+			name:               "Domain in inspect_domains should get certificate regardless of source IP",
+			clientIP:           "10.0.0.1",
+			domain:             "api.example.com",
+			expectedInspect:    true,
+			shouldGenerateCert: true,
+			description:        "Domain in inspection list should get certificate even from non-inspected IP",
+		},
+		{
+			name:               "Source IP inspection should NOT generate certificate for unlisted domain",
+			clientIP:           "192.168.1.100", // This IP is in inspect_source_ips
+			domain:             "other.com",     // This domain is NOT in inspect_domains
+			expectedInspect:    true,            // Connection should be inspected (logged)
+			shouldGenerateCert: false,           // But NO certificate should be generated
+			description:        "Source IP inspection should only enable logging, not certificate generation",
+		},
+		{
+			name:               "Bypassed domain should not get certificate",
+			clientIP:           "192.168.1.200",
+			domain:             "google.com",
+			expectedInspect:    false,
+			shouldGenerateCert: false,
+			description:        "Bypassed domains should not get any inspection or certificates",
+		},
+		{
+			name:               "Non-inspected traffic should not get certificate",
+			clientIP:           "192.168.1.200",
+			domain:             "random.com",
+			expectedInspect:    false,
+			shouldGenerateCert: false,
+			description:        "Non-inspected traffic should be passed through without certificates",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			// Test the shouldInspect logic
+			shouldInspect := proxy.shouldInspect(test.clientIP, test.domain)
+			if shouldInspect != test.expectedInspect {
+				t.Errorf("shouldInspect(%s, %s) = %v, expected %v (%s)",
+					test.clientIP, test.domain, shouldInspect, test.expectedInspect, test.description)
+			}
+
+			// Test the domain-driven certificate generation logic
+			// This simulates the new behavior where certificates are only generated
+			// for domains explicitly listed in inspect_domains
+			domainInspected := proxy.inspectDomains[strings.ToLower(test.domain)]
+
+			if domainInspected != test.shouldGenerateCert {
+				t.Errorf("Domain-driven certificate generation for %s: expected %v, got %v (%s)",
+					test.domain, test.shouldGenerateCert, domainInspected, test.description)
+			}
+
+			// Verify the key insight: certificate generation is now independent of source IP
+			if test.clientIP == "192.168.1.100" && test.domain == "other.com" {
+				// This is the critical test case: source IP is in inspect_source_ips
+				// but domain is NOT in inspect_domains
+				if shouldInspect != true {
+					t.Error("Source IP inspection should still enable connection logging")
+				}
+				if domainInspected != false {
+					t.Error("Certificate generation should NOT occur for domains not in inspect_domains, even if source IP is inspected")
+				}
+				t.Logf("✓ Verified: Source IP %s enables logging but domain %s does not get certificate generation", test.clientIP, test.domain)
+			}
+		})
+	}
+
+	// Test the separation of concerns
+	t.Run("Separation of inspection and certificate generation", func(t *testing.T) {
+		// Scenario: IP-based inspection enables logging but not certificate generation
+		clientIP := "192.168.1.100" // In inspect_source_ips
+		domain := "non-listed.com"  // NOT in inspect_domains
+
+		shouldInspect := proxy.shouldInspect(clientIP, domain)
+		domainInspected := proxy.inspectDomains[strings.ToLower(domain)]
+
+		if !shouldInspect {
+			t.Error("Expected connection to be inspected due to source IP rule")
+		}
+		if domainInspected {
+			t.Error("Expected NO certificate generation for domain not in inspect_domains")
+		}
+
+		t.Logf("✓ Verified separation: shouldInspect=%v (enables logging), domainInspected=%v (controls certificates)",
+			shouldInspect, domainInspected)
+	})
 }

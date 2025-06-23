@@ -71,7 +71,6 @@ type CertCustomDetails struct {
 	StreetAddress      []string `json:"street_address,omitempty"`
 	PostalCode         []string `json:"postal_code,omitempty"`
 	CommonName         string   `json:"common_name,omitempty"`
-	EmailAddress       []string `json:"email_address,omitempty"`
 }
 
 // Proxy server structure
@@ -779,7 +778,10 @@ func (ps *ProxyServer) handleConnection(clientConn net.Conn) {
 	isHTTPS := strings.HasSuffix(serverAddr, ":443") || peekBuffer[0] == 0x16
 
 	// Handle HTTPS interception for inspected connections
-	if info.Inspected && isHTTPS && isConnect {
+	// Only intercept HTTPS if the domain itself is in the inspection list
+	// (not just based on source IP)
+	domainInspected := ps.inspectDomains[strings.ToLower(domain)]
+	if domainInspected && isHTTPS && isConnect {
 		serverConn.Close() // Close the connection we opened, we'll handle this differently
 		ps.handleHTTPSInterception(clientConn, domain, info)
 		return
@@ -993,11 +995,6 @@ func (ps *ProxyServer) generateCA(certFile, keyFile string) error {
 			ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
 			BasicConstraintsValid: true,
 			IsCA:                  true,
-		}
-
-		// Add email addresses if provided
-		if len(details.EmailAddress) > 0 {
-			template.EmailAddresses = details.EmailAddress
 		}
 
 	default: // "minimal" or any other value defaults to minimal
@@ -1287,14 +1284,28 @@ func (ps *ProxyServer) generateCertForDomainWithSniffing(domain, serverAddr stri
 				log.Printf("Failed to sniff upstream cert for %s: %v, using default template", domain, err)
 			}
 		} else {
-			// Copy relevant fields from upstream certificate
-			template.Subject.Organization = upstreamCert.Subject.Organization
-			template.Subject.OrganizationalUnit = upstreamCert.Subject.OrganizationalUnit
-			template.Subject.Country = upstreamCert.Subject.Country
-			template.Subject.Province = upstreamCert.Subject.Province
-			template.Subject.Locality = upstreamCert.Subject.Locality
-			template.Subject.StreetAddress = upstreamCert.Subject.StreetAddress
-			template.Subject.PostalCode = upstreamCert.Subject.PostalCode
+			// Copy relevant fields from upstream certificate, but only if they exist
+			if len(upstreamCert.Subject.Organization) > 0 {
+				template.Subject.Organization = upstreamCert.Subject.Organization
+			}
+			if len(upstreamCert.Subject.OrganizationalUnit) > 0 {
+				template.Subject.OrganizationalUnit = upstreamCert.Subject.OrganizationalUnit
+			}
+			if len(upstreamCert.Subject.Country) > 0 {
+				template.Subject.Country = upstreamCert.Subject.Country
+			}
+			if len(upstreamCert.Subject.Province) > 0 {
+				template.Subject.Province = upstreamCert.Subject.Province
+			}
+			if len(upstreamCert.Subject.Locality) > 0 {
+				template.Subject.Locality = upstreamCert.Subject.Locality
+			}
+			if len(upstreamCert.Subject.StreetAddress) > 0 {
+				template.Subject.StreetAddress = upstreamCert.Subject.StreetAddress
+			}
+			if len(upstreamCert.Subject.PostalCode) > 0 {
+				template.Subject.PostalCode = upstreamCert.Subject.PostalCode
+			}
 
 			// Use the upstream Common Name if it matches the domain
 			if upstreamCert.Subject.CommonName == domain || strings.HasPrefix(domain, "*.") {
@@ -1325,6 +1336,37 @@ func (ps *ProxyServer) generateCertForDomainWithSniffing(domain, serverAddr stri
 					domain, template.Subject.CommonName, template.DNSNames)
 			}
 		}
+	}
+
+	// Apply certificate profile customizations (this can override upstream cert fields)
+	if ps.config.TLS.CertProfile == "custom" && ps.config.TLS.CustomDetails != nil {
+		details := ps.config.TLS.CustomDetails
+
+		if len(details.Organization) > 0 {
+			template.Subject.Organization = details.Organization
+		}
+		if len(details.OrganizationalUnit) > 0 {
+			template.Subject.OrganizationalUnit = details.OrganizationalUnit
+		}
+		if len(details.Country) > 0 {
+			template.Subject.Country = details.Country
+		}
+		if len(details.Province) > 0 {
+			template.Subject.Province = details.Province
+		}
+		if len(details.Locality) > 0 {
+			template.Subject.Locality = details.Locality
+		}
+		if len(details.StreetAddress) > 0 {
+			template.Subject.StreetAddress = details.StreetAddress
+		}
+		if len(details.PostalCode) > 0 {
+			template.Subject.PostalCode = details.PostalCode
+		}
+		if details.CommonName != "" {
+			template.Subject.CommonName = details.CommonName
+		}
+
 	}
 
 	// Handle wildcard domains

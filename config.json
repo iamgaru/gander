@@ -30,8 +30,7 @@
       "192.168.1.100",
       "10.0.0.50",
       "172.16.0.25",
-      "192.168.100.0/24",
-      "127.0.0.1"
+      "192.168.100.0/24"
     ],
     "bypass_domains": [
       "update.microsoft.com",
@@ -65,8 +64,7 @@
       "locality": ["San Francisco"],
       "street_address": ["123 Market Street"],
       "postal_code": ["94105"],
-      "common_name": "Gamu Security CA",
-      "email_address": ["security@gamu.io"]
+      "common_name": "Gamu Security CA"
     }
   }
 }

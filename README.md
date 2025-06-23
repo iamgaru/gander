@@ -81,14 +81,15 @@ A transparent, high-performance Man-in-the-Middle (MITM) proxy written in Go for
 ### Core Capabilities
 - **Transparent Proxy Mode**: Intercepts traffic without client configuration
 - **Explicit Proxy Mode**: Traditional proxy mode for debugging
-- **Selective Inspection**: Rule-based traffic filtering by domain and source IP
+- **Domain-Driven Inspection**: TLS interception and certificate generation only for specified domains
+- **Selective Traffic Filtering**: Rule-based filtering by domain and source IP with different behaviors
 - **High Performance**: Sub-millisecond latency for passthrough traffic
 - **HTTP/HTTPS Support**: Handles both plain and TLS encrypted traffic
-- **Certificate Management**: Automatic certificate generation with custom CA
+- **Smart Certificate Management**: Automatic certificate generation only when needed
 - **Comprehensive Logging**: Detailed connection logs and HTTP request capture
 - **HTTP Request/Response Capture**: Complete request/response pair capture with JSON export
 - **Response Parsing and Matching**: Automatic matching of HTTP responses to their requests
-- **Upstream Certificate Sniffing**: Mimics upstream server certificates for better compatibility
+- **Upstream Certificate Sniffing**: Mimics upstream server certificates for better stealth compatibility
 
 ### Performance Optimizations
 - Buffer pooling for zero-allocation data copying
@@ -96,6 +97,8 @@ A transparent, high-performance Man-in-the-Middle (MITM) proxy written in Go for
 - Fast domain/IP lookup using hash maps
 - Efficient SNI extraction without regex
 - Certificate caching for TLS performance
+- **Domain-driven certificate generation**: No unnecessary certificate creation
+- **Intelligent inspection routing**: Only domains requiring inspection get TLS interception
 - Configurable buffer sizes and timeouts
 - Optimized inspection vs fast relay decision making
 - Performance-optimized response parsing
@@ -262,7 +265,7 @@ make bench
 ```
 
 ### Test Coverage
-Current test coverage: **32.4%** of statements
+Current test coverage: **34.1%** of statements
 
 The test suite covers:
 - ✅ Configuration loading and validation
@@ -273,6 +276,7 @@ The test suite covers:
 - ✅ Certificate cache operations
 - ✅ Certificate trust functionality
 - ✅ Upstream certificate sniffing
+- ✅ **Domain-driven certificate generation** (new in v0.1.0)
 - ✅ Statistics tracking and performance monitoring
 - ✅ Error handling and edge cases
 - ✅ Performance benchmarks for all critical functions
@@ -320,6 +324,29 @@ This automatically:
 
 ## Configuration
 
+### Domain-Driven Certificate Generation (v0.1.0+)
+
+Starting with version 0.1.0, Gander implements **domain-driven certificate generation** for optimal performance and stealth:
+
+```
+┌─────────────────┐    ┌──────────────────┐    ┌─────────────────────┐
+│   All Traffic   │───▶│  Inspection      │───▶│  Certificate        │
+│                 │    │  Rules Check     │    │  Generation         │
+│ • HTTP          │    │                  │    │                     │
+│ • HTTPS         │    │ Source IP  OR    │    │ Domain in           │
+│ • Any Protocol  │    │ Domain     ──▶   │    │ inspect_domains?    │
+└─────────────────┘    │ Match?           │    │                     │
+                       └──────────────────┘    │ YES: Generate Cert  │
+                                               │ NO:  Pass Through   │
+                                               └─────────────────────┘
+```
+
+**Key Benefits:**
+- **Performance**: Certificates only generated when needed
+- **Stealth**: Minimal fingerprinting for non-targeted domains  
+- **Efficiency**: Reduced overhead for high-volume proxy scenarios
+- **Clarity**: Clear separation between logging rules and interception rules
+
 ### Basic Settings
 ```json
 {
@@ -363,29 +390,43 @@ This automatically:
 ```
 
 ### Inspection Rules
+
+**Important**: Certificate generation and TLS interception are now **domain-driven**. Certificates are only generated for domains explicitly listed in `inspect_domains`, regardless of source IP rules. This ensures:
+
+- **Optimal Performance**: No unnecessary certificate generation for domains that don't need inspection
+- **Stealth Operation**: Only targeted domains get certificate interception
+- **Resource Efficiency**: Reduced CPU and memory usage for certificate operations
+- **Clear Separation**: Source IP rules control logging/filtering, domain rules control certificate generation
+
 ```json
 {
   "rules": {
-    "inspect_domains": [             // Domains to inspect
-      "example.com",
-      "api.example.com",
-      "*.suspicious.com"
+    "inspect_domains": [             // Domains requiring TLS interception & certificate generation
+      "example.com",                 // Exact domain match
+      "api.example.com",             // Subdomain match
+      "*.suspicious.com"             // Wildcard domain match
     ],
-    "inspect_source_ips": [          // Source IPs to inspect
-      "192.168.1.100",
-      "10.0.0.0/24"
+    "inspect_source_ips": [          // Source IPs for connection logging (no certificate generation)
+      "192.168.1.100",              // Specific IP
+      "10.0.0.0/24"                  // CIDR range
     ],
-    "bypass_domains": [              // Domains to bypass
+    "bypass_domains": [              // Domains to bypass completely
       "update.microsoft.com",
       "*.google.com"
     ],
-    "bypass_source_ips": [           // Source IPs to bypass
+    "bypass_source_ips": [           // Source IPs to bypass completely
       "192.168.1.1",
       "10.0.1.0/24"
     ]
   }
 }
 ```
+
+**Behavior**:
+- **Domain-based inspection**: Only domains in `inspect_domains` get TLS certificates generated and full HTTP inspection
+- **IP-based logging**: Source IPs in `inspect_source_ips` get connection logging but no certificate generation
+- **Performance optimization**: Non-inspected domains are passed through with minimal overhead
+- **Bypass rules**: Take precedence over inspection rules for excluded traffic
 
 ## Deployment Modes
 

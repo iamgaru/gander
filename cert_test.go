@@ -44,13 +44,14 @@ func TestCertificateFileOperations(t *testing.T) {
 			AutoGenerate      bool   `json:"auto_generate"`
 			ValidDays         int    `json:"valid_days"`
 			UpstreamCertSniff bool   `json:"upstream_cert_sniff"`
-		}{
+CertProfile       string             `json:"cert_profile"`
+CustomDetails     *CertCustomDetails `json:"custom_details,omitempty"`		}{
 			CertDir:      certDir,
 			CAFile:       filepath.Join(certDir, "ca.crt"),
 			CAKeyFile:    filepath.Join(certDir, "ca.key"),
 			AutoGenerate: true,
 			ValidDays:    365,
-		},
+CertProfile:  "minimal",		},
 	}
 
 	proxy, err := NewProxyServer(config)
