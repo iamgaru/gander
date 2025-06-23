@@ -17,6 +17,8 @@
     "inspect_domains": [
       "google.com",
       "gamu.io",
+      "reddit.com",
+      "youtube.com",
       "example.com",
       "api.example.com",
       "*.suspicious.com",

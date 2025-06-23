@@ -300,13 +300,40 @@ func (ps *ProxyServer) shouldInspect(clientIP, domain string) bool {
 	ps.mutex.RLock()
 	defer ps.mutex.RUnlock()
 
+	if ps.config.Logging.EnableDebug {
+		log.Printf("DEBUG: Checking inspection for clientIP=%s, domain=%s (normalized=%s)", clientIP, domain, strings.ToLower(domain))
+		log.Printf("DEBUG: Inspect domains map: %+v", ps.inspectDomains)
+		log.Printf("DEBUG: Inspect IPs map: %+v", ps.inspectIPs)
+		log.Printf("DEBUG: Bypass domains map: %+v", ps.bypassDomains)
+		log.Printf("DEBUG: Bypass IPs map: %+v", ps.bypassIPs)
+	}
+
 	// Check bypass rules first
-	if ps.bypassIPs[clientIP] || ps.bypassDomains[strings.ToLower(domain)] {
+	if ps.bypassIPs[clientIP] {
+		if ps.config.Logging.EnableDebug {
+			log.Printf("DEBUG: Bypassing due to IP %s in bypass list", clientIP)
+		}
+		return false
+	}
+
+	if ps.bypassDomains[strings.ToLower(domain)] {
+		if ps.config.Logging.EnableDebug {
+			log.Printf("DEBUG: Bypassing due to domain %s in bypass list", domain)
+		}
 		return false
 	}
 
 	// Check inspect rules
-	return ps.inspectIPs[clientIP] || ps.inspectDomains[strings.ToLower(domain)]
+	inspectByIP := ps.inspectIPs[clientIP]
+	inspectByDomain := ps.inspectDomains[strings.ToLower(domain)]
+
+	if ps.config.Logging.EnableDebug {
+		log.Printf("DEBUG: Inspect by IP (%s): %t", clientIP, inspectByIP)
+		log.Printf("DEBUG: Inspect by domain (%s): %t", domain, inspectByDomain)
+		log.Printf("DEBUG: Final inspection decision: %t", inspectByIP || inspectByDomain)
+	}
+
+	return inspectByIP || inspectByDomain
 }
 
 // Log connection info
@@ -592,8 +619,55 @@ func (ps *ProxyServer) handleConnection(clientConn net.Conn) {
 	// Extract client IP properly handling both IPv4 and IPv6
 	clientAddr := clientConn.RemoteAddr().String()
 	clientIP := clientAddr
+
+	if ps.config.Logging.EnableDebug {
+		log.Printf("DEBUG: Raw client address: '%s'", clientAddr)
+	}
+
+	// Try to parse the address properly
 	if host, _, err := net.SplitHostPort(clientAddr); err == nil {
 		clientIP = host
+		if ps.config.Logging.EnableDebug {
+			log.Printf("DEBUG: SplitHostPort succeeded, extracted IP: '%s'", clientIP)
+		}
+	} else {
+		if ps.config.Logging.EnableDebug {
+			log.Printf("DEBUG: SplitHostPort failed with error: %v", err)
+		}
+		// If SplitHostPort fails, try to clean up the address
+		// This handles cases where the address might be malformed
+		if strings.HasPrefix(clientAddr, "[") && strings.Contains(clientAddr, "]") {
+			// IPv6 address without port - extract just the IP
+			if endBracket := strings.Index(clientAddr, "]"); endBracket != -1 {
+				clientIP = clientAddr[1:endBracket]
+				if ps.config.Logging.EnableDebug {
+					log.Printf("DEBUG: Extracted IPv6 IP from brackets: '%s'", clientIP)
+				}
+			}
+		} else if colonIndex := strings.LastIndex(clientAddr, ":"); colonIndex != -1 {
+			// IPv4 address with port - extract just the IP
+			clientIP = clientAddr[:colonIndex]
+			if ps.config.Logging.EnableDebug {
+				log.Printf("DEBUG: Extracted IPv4 IP from colon: '%s'", clientIP)
+			}
+		}
+		// If all else fails, use the original address
+	}
+
+	// Additional safety check - ensure we have a valid IP
+	if clientIP == "" || clientIP == "[" || clientIP == "]" {
+		if ps.config.Logging.EnableDebug {
+			log.Printf("DEBUG: Client IP was invalid ('%s'), setting to 'unknown'", clientIP)
+		}
+		clientIP = "unknown"
+	}
+
+	if ps.config.Logging.EnableDebug {
+		log.Printf("DEBUG: Final client IP: '%s' (original: '%s')", clientIP, clientAddr)
+	}
+
+	if ps.config.Logging.EnableDebug {
+		log.Printf("DEBUG: Client connection from %s (original: %s)", clientIP, clientAddr)
 	}
 
 	// Peek at first packet
