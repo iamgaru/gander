@@ -2,7 +2,7 @@
   <img src="logo.png" alt="Gander Logo" width="25%" />
 </div>
 
-# Gander - High-Performance MITM Proxy
+# Gander - High-Performance Packet Filter and Proxy 
 
 [![CI](https://github.com/iamgaru/gander/workflows/CI/badge.svg)](https://github.com/iamgaru/gander/actions/workflows/ci.yml)
 [![CodeQL](https://github.com/iamgaru/gander/workflows/CodeQL/badge.svg)](https://github.com/iamgaru/gander/actions/workflows/codeql.yml)
