@@ -139,22 +139,23 @@ func TestNewProxyServer(t *testing.T) {
 			BypassIPs:      []string{"127.0.0.1"},
 		},
 		TLS: struct {
-			CertFile          string `json:"cert_file"`
-			KeyFile           string `json:"key_file"`
-			CAFile            string `json:"ca_file"`
-			CAKeyFile         string `json:"ca_key_file"`
-			CertDir           string `json:"cert_dir"`
-			AutoGenerate      bool   `json:"auto_generate"`
-			ValidDays         int    `json:"valid_days"`
-			UpstreamCertSniff bool   `json:"upstream_cert_sniff"`
-CertProfile       string             `json:"cert_profile"`
-CustomDetails     *CertCustomDetails `json:"custom_details,omitempty"`		}{
+			CertFile          string             `json:"cert_file"`
+			KeyFile           string             `json:"key_file"`
+			CAFile            string             `json:"ca_file"`
+			CAKeyFile         string             `json:"ca_key_file"`
+			CertDir           string             `json:"cert_dir"`
+			AutoGenerate      bool               `json:"auto_generate"`
+			ValidDays         int                `json:"valid_days"`
+			UpstreamCertSniff bool               `json:"upstream_cert_sniff"`
+			CertProfile       string             `json:"cert_profile"`
+			CustomDetails     *CertCustomDetails `json:"custom_details,omitempty"`
+		}{
 			CertDir:      filepath.Join(tempDir, "certs"),
 			CAFile:       filepath.Join(tempDir, "certs", "ca.crt"),
 			CAKeyFile:    filepath.Join(tempDir, "certs", "ca.key"),
 			AutoGenerate: true,
 			ValidDays:    365,
-CertProfile:  "minimal",		},
+			CertProfile:  "minimal"},
 	}
 
 	proxy, err := NewProxyServer(config)
@@ -217,22 +218,23 @@ func TestShouldInspect(t *testing.T) {
 			BypassIPs:      []string{"127.0.0.1"},
 		},
 		TLS: struct {
-			CertFile          string `json:"cert_file"`
-			KeyFile           string `json:"key_file"`
-			CAFile            string `json:"ca_file"`
-			CAKeyFile         string `json:"ca_key_file"`
-			CertDir           string `json:"cert_dir"`
-			AutoGenerate      bool   `json:"auto_generate"`
-			ValidDays         int    `json:"valid_days"`
-			UpstreamCertSniff bool   `json:"upstream_cert_sniff"`
-CertProfile       string             `json:"cert_profile"`
-CustomDetails     *CertCustomDetails `json:"custom_details,omitempty"`		}{
+			CertFile          string             `json:"cert_file"`
+			KeyFile           string             `json:"key_file"`
+			CAFile            string             `json:"ca_file"`
+			CAKeyFile         string             `json:"ca_key_file"`
+			CertDir           string             `json:"cert_dir"`
+			AutoGenerate      bool               `json:"auto_generate"`
+			ValidDays         int                `json:"valid_days"`
+			UpstreamCertSniff bool               `json:"upstream_cert_sniff"`
+			CertProfile       string             `json:"cert_profile"`
+			CustomDetails     *CertCustomDetails `json:"custom_details,omitempty"`
+		}{
 			CertDir:      filepath.Join(tempDir, "certs"),
 			CAFile:       filepath.Join(tempDir, "certs", "ca.crt"),
 			CAKeyFile:    filepath.Join(tempDir, "certs", "ca.key"),
 			AutoGenerate: true,
 			ValidDays:    365,
-CertProfile:  "minimal",		},
+			CertProfile:  "minimal"},
 	}
 
 	proxy, err := NewProxyServer(config)
@@ -440,22 +442,23 @@ func TestProxyStats(t *testing.T) {
 			CaptureDir: filepath.Join(tempDir, "captures"),
 		},
 		TLS: struct {
-			CertFile          string `json:"cert_file"`
-			KeyFile           string `json:"key_file"`
-			CAFile            string `json:"ca_file"`
-			CAKeyFile         string `json:"ca_key_file"`
-			CertDir           string `json:"cert_dir"`
-			AutoGenerate      bool   `json:"auto_generate"`
-			ValidDays         int    `json:"valid_days"`
-			UpstreamCertSniff bool   `json:"upstream_cert_sniff"`
-CertProfile       string             `json:"cert_profile"`
-CustomDetails     *CertCustomDetails `json:"custom_details,omitempty"`		}{
+			CertFile          string             `json:"cert_file"`
+			KeyFile           string             `json:"key_file"`
+			CAFile            string             `json:"ca_file"`
+			CAKeyFile         string             `json:"ca_key_file"`
+			CertDir           string             `json:"cert_dir"`
+			AutoGenerate      bool               `json:"auto_generate"`
+			ValidDays         int                `json:"valid_days"`
+			UpstreamCertSniff bool               `json:"upstream_cert_sniff"`
+			CertProfile       string             `json:"cert_profile"`
+			CustomDetails     *CertCustomDetails `json:"custom_details,omitempty"`
+		}{
 			CertDir:      filepath.Join(tempDir, "certs"),
 			CAFile:       filepath.Join(tempDir, "certs", "ca.crt"),
 			CAKeyFile:    filepath.Join(tempDir, "certs", "ca.key"),
 			AutoGenerate: true,
 			ValidDays:    365,
-CertProfile:  "minimal",		},
+			CertProfile:  "minimal"},
 	}
 
 	proxy, err := NewProxyServer(config)
@@ -530,22 +533,23 @@ func BenchmarkShouldInspect(b *testing.B) {
 			InspectIPs:     []string{"192.168.1.100"},
 		},
 		TLS: struct {
-			CertFile          string `json:"cert_file"`
-			KeyFile           string `json:"key_file"`
-			CAFile            string `json:"ca_file"`
-			CAKeyFile         string `json:"ca_key_file"`
-			CertDir           string `json:"cert_dir"`
-			AutoGenerate      bool   `json:"auto_generate"`
-			ValidDays         int    `json:"valid_days"`
-			UpstreamCertSniff bool   `json:"upstream_cert_sniff"`
-CertProfile       string             `json:"cert_profile"`
-CustomDetails     *CertCustomDetails `json:"custom_details,omitempty"`		}{
+			CertFile          string             `json:"cert_file"`
+			KeyFile           string             `json:"key_file"`
+			CAFile            string             `json:"ca_file"`
+			CAKeyFile         string             `json:"ca_key_file"`
+			CertDir           string             `json:"cert_dir"`
+			AutoGenerate      bool               `json:"auto_generate"`
+			ValidDays         int                `json:"valid_days"`
+			UpstreamCertSniff bool               `json:"upstream_cert_sniff"`
+			CertProfile       string             `json:"cert_profile"`
+			CustomDetails     *CertCustomDetails `json:"custom_details,omitempty"`
+		}{
 			CertDir:      filepath.Join(tempDir, "certs"),
 			CAFile:       filepath.Join(tempDir, "certs", "ca.crt"),
 			CAKeyFile:    filepath.Join(tempDir, "certs", "ca.key"),
 			AutoGenerate: true,
 			ValidDays:    365,
-CertProfile:  "minimal",		},
+			CertProfile:  "minimal"},
 	}
 
 	proxy, err := NewProxyServer(config)
@@ -593,22 +597,23 @@ func TestProxyServerIntegration(t *testing.T) {
 			CaptureDir: filepath.Join(tempDir, "captures"),
 		},
 		TLS: struct {
-			CertFile          string `json:"cert_file"`
-			KeyFile           string `json:"key_file"`
-			CAFile            string `json:"ca_file"`
-			CAKeyFile         string `json:"ca_key_file"`
-			CertDir           string `json:"cert_dir"`
-			AutoGenerate      bool   `json:"auto_generate"`
-			ValidDays         int    `json:"valid_days"`
-			UpstreamCertSniff bool   `json:"upstream_cert_sniff"`
-CertProfile       string             `json:"cert_profile"`
-CustomDetails     *CertCustomDetails `json:"custom_details,omitempty"`		}{
+			CertFile          string             `json:"cert_file"`
+			KeyFile           string             `json:"key_file"`
+			CAFile            string             `json:"ca_file"`
+			CAKeyFile         string             `json:"ca_key_file"`
+			CertDir           string             `json:"cert_dir"`
+			AutoGenerate      bool               `json:"auto_generate"`
+			ValidDays         int                `json:"valid_days"`
+			UpstreamCertSniff bool               `json:"upstream_cert_sniff"`
+			CertProfile       string             `json:"cert_profile"`
+			CustomDetails     *CertCustomDetails `json:"custom_details,omitempty"`
+		}{
 			CertDir:      filepath.Join(tempDir, "certs"),
 			CAFile:       filepath.Join(tempDir, "certs", "ca.crt"),
 			CAKeyFile:    filepath.Join(tempDir, "certs", "ca.key"),
 			AutoGenerate: true,
 			ValidDays:    365,
-CertProfile:  "minimal",		},
+			CertProfile:  "minimal"},
 	}
 
 	proxy, err := NewProxyServer(config)
@@ -834,22 +839,23 @@ func TestInspectHTTPWithCapture(t *testing.T) {
 			InspectDomains: []string{"example.com"},
 		},
 		TLS: struct {
-			CertFile          string `json:"cert_file"`
-			KeyFile           string `json:"key_file"`
-			CAFile            string `json:"ca_file"`
-			CAKeyFile         string `json:"ca_key_file"`
-			CertDir           string `json:"cert_dir"`
-			AutoGenerate      bool   `json:"auto_generate"`
-			ValidDays         int    `json:"valid_days"`
-			UpstreamCertSniff bool   `json:"upstream_cert_sniff"`
-CertProfile       string             `json:"cert_profile"`
-CustomDetails     *CertCustomDetails `json:"custom_details,omitempty"`		}{
+			CertFile          string             `json:"cert_file"`
+			KeyFile           string             `json:"key_file"`
+			CAFile            string             `json:"ca_file"`
+			CAKeyFile         string             `json:"ca_key_file"`
+			CertDir           string             `json:"cert_dir"`
+			AutoGenerate      bool               `json:"auto_generate"`
+			ValidDays         int                `json:"valid_days"`
+			UpstreamCertSniff bool               `json:"upstream_cert_sniff"`
+			CertProfile       string             `json:"cert_profile"`
+			CustomDetails     *CertCustomDetails `json:"custom_details,omitempty"`
+		}{
 			CertDir:      filepath.Join(tempDir, "certs"),
 			CAFile:       filepath.Join(tempDir, "certs", "ca.crt"),
 			CAKeyFile:    filepath.Join(tempDir, "certs", "ca.key"),
 			AutoGenerate: true,
 			ValidDays:    365,
-CertProfile:  "minimal",		},
+			CertProfile:  "minimal"},
 	}
 
 	proxy, err := NewProxyServer(config)
@@ -904,22 +910,23 @@ func TestInspectHTTPResponse(t *testing.T) {
 			CaptureDir: captureDir,
 		},
 		TLS: struct {
-			CertFile          string `json:"cert_file"`
-			KeyFile           string `json:"key_file"`
-			CAFile            string `json:"ca_file"`
-			CAKeyFile         string `json:"ca_key_file"`
-			CertDir           string `json:"cert_dir"`
-			AutoGenerate      bool   `json:"auto_generate"`
-			ValidDays         int    `json:"valid_days"`
-			UpstreamCertSniff bool   `json:"upstream_cert_sniff"`
-CertProfile       string             `json:"cert_profile"`
-CustomDetails     *CertCustomDetails `json:"custom_details,omitempty"`		}{
+			CertFile          string             `json:"cert_file"`
+			KeyFile           string             `json:"key_file"`
+			CAFile            string             `json:"ca_file"`
+			CAKeyFile         string             `json:"ca_key_file"`
+			CertDir           string             `json:"cert_dir"`
+			AutoGenerate      bool               `json:"auto_generate"`
+			ValidDays         int                `json:"valid_days"`
+			UpstreamCertSniff bool               `json:"upstream_cert_sniff"`
+			CertProfile       string             `json:"cert_profile"`
+			CustomDetails     *CertCustomDetails `json:"custom_details,omitempty"`
+		}{
 			CertDir:      filepath.Join(tempDir, "certs"),
 			CAFile:       filepath.Join(tempDir, "certs", "ca.crt"),
 			CAKeyFile:    filepath.Join(tempDir, "certs", "ca.key"),
 			AutoGenerate: true,
 			ValidDays:    365,
-CertProfile:  "minimal",		},
+			CertProfile:  "minimal"},
 	}
 
 	proxy, err := NewProxyServer(config)
@@ -1029,22 +1036,23 @@ func TestHTTPSInterceptionDecision(t *testing.T) {
 			BypassIPs:      []string{"127.0.0.1"},
 		},
 		TLS: struct {
-			CertFile          string `json:"cert_file"`
-			KeyFile           string `json:"key_file"`
-			CAFile            string `json:"ca_file"`
-			CAKeyFile         string `json:"ca_key_file"`
-			CertDir           string `json:"cert_dir"`
-			AutoGenerate      bool   `json:"auto_generate"`
-			ValidDays         int    `json:"valid_days"`
-			UpstreamCertSniff bool   `json:"upstream_cert_sniff"`
-CertProfile       string             `json:"cert_profile"`
-CustomDetails     *CertCustomDetails `json:"custom_details,omitempty"`		}{
+			CertFile          string             `json:"cert_file"`
+			KeyFile           string             `json:"key_file"`
+			CAFile            string             `json:"ca_file"`
+			CAKeyFile         string             `json:"ca_key_file"`
+			CertDir           string             `json:"cert_dir"`
+			AutoGenerate      bool               `json:"auto_generate"`
+			ValidDays         int                `json:"valid_days"`
+			UpstreamCertSniff bool               `json:"upstream_cert_sniff"`
+			CertProfile       string             `json:"cert_profile"`
+			CustomDetails     *CertCustomDetails `json:"custom_details,omitempty"`
+		}{
 			CertDir:      filepath.Join(tempDir, "certs"),
 			CAFile:       filepath.Join(tempDir, "certs", "ca.crt"),
 			CAKeyFile:    filepath.Join(tempDir, "certs", "ca.key"),
 			AutoGenerate: true,
 			ValidDays:    365,
-CertProfile:  "minimal",		},
+			CertProfile:  "minimal"},
 	}
 
 	proxy, err := NewProxyServer(config)
@@ -1149,22 +1157,23 @@ func TestCompleteRequestResponseCapture(t *testing.T) {
 			InspectDomains: []string{"example.com"},
 		},
 		TLS: struct {
-			CertFile          string `json:"cert_file"`
-			KeyFile           string `json:"key_file"`
-			CAFile            string `json:"ca_file"`
-			CAKeyFile         string `json:"ca_key_file"`
-			CertDir           string `json:"cert_dir"`
-			AutoGenerate      bool   `json:"auto_generate"`
-			ValidDays         int    `json:"valid_days"`
-			UpstreamCertSniff bool   `json:"upstream_cert_sniff"`
-CertProfile       string             `json:"cert_profile"`
-CustomDetails     *CertCustomDetails `json:"custom_details,omitempty"`		}{
+			CertFile          string             `json:"cert_file"`
+			KeyFile           string             `json:"key_file"`
+			CAFile            string             `json:"ca_file"`
+			CAKeyFile         string             `json:"ca_key_file"`
+			CertDir           string             `json:"cert_dir"`
+			AutoGenerate      bool               `json:"auto_generate"`
+			ValidDays         int                `json:"valid_days"`
+			UpstreamCertSniff bool               `json:"upstream_cert_sniff"`
+			CertProfile       string             `json:"cert_profile"`
+			CustomDetails     *CertCustomDetails `json:"custom_details,omitempty"`
+		}{
 			CertDir:      filepath.Join(tempDir, "certs"),
 			CAFile:       filepath.Join(tempDir, "certs", "ca.crt"),
 			CAKeyFile:    filepath.Join(tempDir, "certs", "ca.key"),
 			AutoGenerate: true,
 			ValidDays:    365,
-CertProfile:  "minimal",		},
+			CertProfile:  "minimal"},
 	}
 
 	proxy, err := NewProxyServer(config)
@@ -1250,22 +1259,23 @@ func TestRelayPerformanceDifference(t *testing.T) {
 			BypassDomains:  []string{"fast.com"},
 		},
 		TLS: struct {
-			CertFile          string `json:"cert_file"`
-			KeyFile           string `json:"key_file"`
-			CAFile            string `json:"ca_file"`
-			CAKeyFile         string `json:"ca_key_file"`
-			CertDir           string `json:"cert_dir"`
-			AutoGenerate      bool   `json:"auto_generate"`
-			ValidDays         int    `json:"valid_days"`
-			UpstreamCertSniff bool   `json:"upstream_cert_sniff"`
-CertProfile       string             `json:"cert_profile"`
-CustomDetails     *CertCustomDetails `json:"custom_details,omitempty"`		}{
+			CertFile          string             `json:"cert_file"`
+			KeyFile           string             `json:"key_file"`
+			CAFile            string             `json:"ca_file"`
+			CAKeyFile         string             `json:"ca_key_file"`
+			CertDir           string             `json:"cert_dir"`
+			AutoGenerate      bool               `json:"auto_generate"`
+			ValidDays         int                `json:"valid_days"`
+			UpstreamCertSniff bool               `json:"upstream_cert_sniff"`
+			CertProfile       string             `json:"cert_profile"`
+			CustomDetails     *CertCustomDetails `json:"custom_details,omitempty"`
+		}{
 			CertDir:      filepath.Join(tempDir, "certs"),
 			CAFile:       filepath.Join(tempDir, "certs", "ca.crt"),
 			CAKeyFile:    filepath.Join(tempDir, "certs", "ca.key"),
 			AutoGenerate: true,
 			ValidDays:    365,
-CertProfile:  "minimal",		},
+			CertProfile:  "minimal"},
 	}
 
 	proxy, err := NewProxyServer(config)
@@ -1335,22 +1345,23 @@ func BenchmarkInspectionDecision(b *testing.B) {
 			BypassDomains:  []string{"google.com", "fast.com"},
 		},
 		TLS: struct {
-			CertFile          string `json:"cert_file"`
-			KeyFile           string `json:"key_file"`
-			CAFile            string `json:"ca_file"`
-			CAKeyFile         string `json:"ca_key_file"`
-			CertDir           string `json:"cert_dir"`
-			AutoGenerate      bool   `json:"auto_generate"`
-			ValidDays         int    `json:"valid_days"`
-			UpstreamCertSniff bool   `json:"upstream_cert_sniff"`
-CertProfile       string             `json:"cert_profile"`
-CustomDetails     *CertCustomDetails `json:"custom_details,omitempty"`		}{
+			CertFile          string             `json:"cert_file"`
+			KeyFile           string             `json:"key_file"`
+			CAFile            string             `json:"ca_file"`
+			CAKeyFile         string             `json:"ca_key_file"`
+			CertDir           string             `json:"cert_dir"`
+			AutoGenerate      bool               `json:"auto_generate"`
+			ValidDays         int                `json:"valid_days"`
+			UpstreamCertSniff bool               `json:"upstream_cert_sniff"`
+			CertProfile       string             `json:"cert_profile"`
+			CustomDetails     *CertCustomDetails `json:"custom_details,omitempty"`
+		}{
 			CertDir:      filepath.Join(tempDir, "certs"),
 			CAFile:       filepath.Join(tempDir, "certs", "ca.crt"),
 			CAKeyFile:    filepath.Join(tempDir, "certs", "ca.key"),
 			AutoGenerate: true,
 			ValidDays:    365,
-CertProfile:  "minimal",		},
+			CertProfile:  "minimal"},
 	}
 
 	proxy, err := NewProxyServer(config)
@@ -1396,22 +1407,23 @@ func TestDomainDrivenCertificateGeneration(t *testing.T) {
 			BypassIPs:      []string{"127.0.0.1"},
 		},
 		TLS: struct {
-			CertFile          string `json:"cert_file"`
-			KeyFile           string `json:"key_file"`
-			CAFile            string `json:"ca_file"`
-			CAKeyFile         string `json:"ca_key_file"`
-			CertDir           string `json:"cert_dir"`
-			AutoGenerate      bool   `json:"auto_generate"`
-			ValidDays         int    `json:"valid_days"`
-			UpstreamCertSniff bool   `json:"upstream_cert_sniff"`
-CertProfile       string             `json:"cert_profile"`
-CustomDetails     *CertCustomDetails `json:"custom_details,omitempty"`		}{
+			CertFile          string             `json:"cert_file"`
+			KeyFile           string             `json:"key_file"`
+			CAFile            string             `json:"ca_file"`
+			CAKeyFile         string             `json:"ca_key_file"`
+			CertDir           string             `json:"cert_dir"`
+			AutoGenerate      bool               `json:"auto_generate"`
+			ValidDays         int                `json:"valid_days"`
+			UpstreamCertSniff bool               `json:"upstream_cert_sniff"`
+			CertProfile       string             `json:"cert_profile"`
+			CustomDetails     *CertCustomDetails `json:"custom_details,omitempty"`
+		}{
 			CertDir:      filepath.Join(tempDir, "certs"),
 			CAFile:       filepath.Join(tempDir, "certs", "ca.crt"),
 			CAKeyFile:    filepath.Join(tempDir, "certs", "ca.key"),
 			AutoGenerate: true,
 			ValidDays:    365,
-CertProfile:  "minimal",		},
+			CertProfile:  "minimal"},
 	}
 
 	proxy, err := NewProxyServer(config)
