@@ -75,19 +75,22 @@ type CertCustomDetails struct {
 
 // Proxy server structure
 type ProxyServer struct {
-	config         *Config
-	inspectDomains map[string]bool
-	inspectIPs     map[string]bool
-	bypassDomains  map[string]bool
-	bypassIPs      map[string]bool
-	logFile        *os.File
-	bufferPool     *sync.Pool
-	stats          *ProxyStats
-	mutex          sync.RWMutex
-	caCert         *x509.Certificate
-	caKey          *rsa.PrivateKey
-	certCache      map[string]*tls.Certificate
-	certMutex      sync.RWMutex
+	config                 *Config
+	inspectDomains         map[string]bool
+	inspectDomainWildcards []string // Store wildcard patterns like "*.google.com"
+	inspectAllDomains      bool     // True if "*" is in inspect domains
+	inspectIPs             map[string]bool
+	bypassDomains          map[string]bool
+	bypassDomainWildcards  []string // Store wildcard patterns for bypass
+	bypassIPs              map[string]bool
+	logFile                *os.File
+	bufferPool             *sync.Pool
+	stats                  *ProxyStats
+	mutex                  sync.RWMutex
+	caCert                 *x509.Certificate
+	caKey                  *rsa.PrivateKey
+	certCache              map[string]*tls.Certificate
+	certMutex              sync.RWMutex
 }
 
 // Connection statistics
@@ -187,10 +190,19 @@ func NewProxyServer(config *Config) (*ProxyServer, error) {
 		return nil, err
 	}
 
-	// Create lookup maps for fast access
+	// Create lookup maps for fast access and parse wildcard patterns
 	inspectDomains := make(map[string]bool)
+	var inspectDomainWildcards []string
+	var inspectAllDomains bool
+
 	for _, domain := range config.Rules.InspectDomains {
-		inspectDomains[strings.ToLower(domain)] = true
+		if domain == "*" {
+			inspectAllDomains = true
+		} else if strings.Contains(domain, "*") {
+			inspectDomainWildcards = append(inspectDomainWildcards, domain)
+		} else {
+			inspectDomains[strings.ToLower(domain)] = true
+		}
 	}
 
 	inspectIPs := make(map[string]bool)
@@ -199,8 +211,14 @@ func NewProxyServer(config *Config) (*ProxyServer, error) {
 	}
 
 	bypassDomains := make(map[string]bool)
+	var bypassDomainWildcards []string
+
 	for _, domain := range config.Rules.BypassDomains {
-		bypassDomains[strings.ToLower(domain)] = true
+		if strings.Contains(domain, "*") {
+			bypassDomainWildcards = append(bypassDomainWildcards, domain)
+		} else {
+			bypassDomains[strings.ToLower(domain)] = true
+		}
 	}
 
 	bypassIPs := make(map[string]bool)
@@ -217,15 +235,18 @@ func NewProxyServer(config *Config) (*ProxyServer, error) {
 	}
 
 	ps := &ProxyServer{
-		config:         config,
-		inspectDomains: inspectDomains,
-		inspectIPs:     inspectIPs,
-		bypassDomains:  bypassDomains,
-		bypassIPs:      bypassIPs,
-		logFile:        logFile,
-		bufferPool:     bufferPool,
-		stats:          &ProxyStats{},
-		certCache:      make(map[string]*tls.Certificate),
+		config:                 config,
+		inspectDomains:         inspectDomains,
+		inspectDomainWildcards: inspectDomainWildcards,
+		inspectAllDomains:      inspectAllDomains,
+		inspectIPs:             inspectIPs,
+		bypassDomains:          bypassDomains,
+		bypassDomainWildcards:  bypassDomainWildcards,
+		bypassIPs:              bypassIPs,
+		logFile:                logFile,
+		bufferPool:             bufferPool,
+		stats:                  &ProxyStats{},
+		certCache:              make(map[string]*tls.Certificate),
 	}
 
 	// Initialize CA certificate
@@ -309,6 +330,43 @@ func extractHTTPHost(data []byte) string {
 	return ""
 }
 
+// matchDomainPattern checks if a domain matches a wildcard pattern
+func matchDomainPattern(domain, pattern string) bool {
+	if pattern == "*" {
+		return true // Global wildcard matches everything
+	}
+
+	if !strings.Contains(pattern, "*") {
+		return strings.EqualFold(domain, pattern) // Exact match (case insensitive)
+	}
+
+	// Handle wildcard patterns like "*.google.com"
+	if strings.HasPrefix(pattern, "*.") {
+		suffix := pattern[2:] // Remove "*."
+		return strings.EqualFold(domain, suffix) || strings.HasSuffix(strings.ToLower(domain), "."+strings.ToLower(suffix))
+	}
+
+	// Handle other wildcard patterns (e.g., "google.*")
+	if strings.HasSuffix(pattern, "*") {
+		prefix := pattern[:len(pattern)-1]
+		return strings.HasPrefix(strings.ToLower(domain), strings.ToLower(prefix))
+	}
+
+	// For more complex patterns, use filepath.Match
+	matched, _ := filepath.Match(strings.ToLower(pattern), strings.ToLower(domain))
+	return matched
+}
+
+// checkDomainWildcards checks if domain matches any wildcard patterns
+func checkDomainWildcards(domain string, wildcards []string) bool {
+	for _, pattern := range wildcards {
+		if matchDomainPattern(domain, pattern) {
+			return true
+		}
+	}
+	return false
+}
+
 // Determine if connection should be inspected
 func (ps *ProxyServer) shouldInspect(clientIP, domain string) bool {
 	ps.mutex.RLock()
@@ -317,8 +375,11 @@ func (ps *ProxyServer) shouldInspect(clientIP, domain string) bool {
 	if ps.config.Logging.EnableDebug {
 		log.Printf("DEBUG: Checking inspection for clientIP=%s, domain=%s (normalized=%s)", clientIP, domain, strings.ToLower(domain))
 		log.Printf("DEBUG: Inspect domains map: %+v", ps.inspectDomains)
+		log.Printf("DEBUG: Inspect domain wildcards: %+v", ps.inspectDomainWildcards)
+		log.Printf("DEBUG: Inspect all domains: %t", ps.inspectAllDomains)
 		log.Printf("DEBUG: Inspect IPs map: %+v", ps.inspectIPs)
 		log.Printf("DEBUG: Bypass domains map: %+v", ps.bypassDomains)
+		log.Printf("DEBUG: Bypass domain wildcards: %+v", ps.bypassDomainWildcards)
 		log.Printf("DEBUG: Bypass IPs map: %+v", ps.bypassIPs)
 	}
 
@@ -330,6 +391,7 @@ func (ps *ProxyServer) shouldInspect(clientIP, domain string) bool {
 		return false
 	}
 
+	// Check exact domain bypass
 	if ps.bypassDomains[strings.ToLower(domain)] {
 		if ps.config.Logging.EnableDebug {
 			log.Printf("DEBUG: Bypassing due to domain %s in bypass list", domain)
@@ -337,17 +399,39 @@ func (ps *ProxyServer) shouldInspect(clientIP, domain string) bool {
 		return false
 	}
 
+	// Check wildcard domain bypass
+	if checkDomainWildcards(domain, ps.bypassDomainWildcards) {
+		if ps.config.Logging.EnableDebug {
+			log.Printf("DEBUG: Bypassing due to domain %s matching wildcard bypass pattern", domain)
+		}
+		return false
+	}
+
 	// Check inspect rules
 	inspectByIP := ps.inspectIPs[clientIP]
+
+	// Check if we should inspect all domains
+	if ps.inspectAllDomains {
+		if ps.config.Logging.EnableDebug {
+			log.Printf("DEBUG: Inspecting due to global wildcard (*) rule")
+		}
+		return true
+	}
+
+	// Check exact domain match
 	inspectByDomain := ps.inspectDomains[strings.ToLower(domain)]
+
+	// Check wildcard domain patterns
+	inspectByWildcard := checkDomainWildcards(domain, ps.inspectDomainWildcards)
 
 	if ps.config.Logging.EnableDebug {
 		log.Printf("DEBUG: Inspect by IP (%s): %t", clientIP, inspectByIP)
-		log.Printf("DEBUG: Inspect by domain (%s): %t", domain, inspectByDomain)
-		log.Printf("DEBUG: Final inspection decision: %t", inspectByIP || inspectByDomain)
+		log.Printf("DEBUG: Inspect by exact domain (%s): %t", domain, inspectByDomain)
+		log.Printf("DEBUG: Inspect by wildcard pattern (%s): %t", domain, inspectByWildcard)
+		log.Printf("DEBUG: Final inspection decision: %t", inspectByIP || inspectByDomain || inspectByWildcard)
 	}
 
-	return inspectByIP || inspectByDomain
+	return inspectByIP || inspectByDomain || inspectByWildcard
 }
 
 // Log connection info
