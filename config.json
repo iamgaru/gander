@@ -1,8 +1,8 @@
 {
   "proxy": {
-    "listen_addr": ":1234",
+    "listen_addr": ":8081",
     "transparent": false,
-    "explicit_port": 3128,
+    "explicit_port": 3129,
     "buffer_size": 32768,
     "read_timeout_seconds": 30,
     "write_timeout_seconds": 30
@@ -15,57 +15,38 @@
   },
   "rules": {
     "inspect_domains": [
-      "google.com",
-      "gamu.io",
-      "reddit.com",
-      "youtube.com",
       "example.com",
-      "api.example.com",
+      "api.example.com", 
+      "test.local",
       "*.suspicious.com",
-      "*.google.com",
-      "test.internal",
-      "admin.company.local",
-      "github.com"
+      "*.evil.com",
+      "httpbin.org",
+      "jsonplaceholder.typicode.com",
+      "httpbin.org",
+      "postman-echo.com"
     ],
     "inspect_source_ips": [
       "192.168.1.100",
-      "10.0.0.50",
-      "172.16.0.25",
-      "192.168.100.0/24"
+      "10.0.0.0/24",
+      "127.0.0.1"
     ],
     "bypass_domains": [
       "update.microsoft.com",
-      "download.windowsupdate.com",
-      "*.cloudflare.com",
-      "*.googleapis.com",
-      "*.apple.com",
-      "ocsp.*.com"
+      "*.google.com"
     ],
     "bypass_source_ips": [
       "192.168.1.1",
-      "10.0.0.1",
-      "169.254.0.0/16"
+      "10.0.1.0/24"
     ]
   },
   "tls": {
-    "cert_file": "",
-    "key_file": "",
+    "cert_file": "certs/proxy.crt",
+    "key_file": "certs/proxy.key",
     "ca_file": "certs/ca.crt",
     "ca_key_file": "certs/ca.key",
     "cert_dir": "certs",
     "auto_generate": true,
     "valid_days": 365,
-    "upstream_cert_sniff": true,
-    "cert_profile": "custom",
-    "custom_details": {
-      "organization": ["Gamu Corporation"],
-      "organizational_unit": ["IT Security", "Network Operations"],
-      "country": ["US"],
-      "province": ["California"],
-      "locality": ["San Francisco"],
-      "street_address": ["123 Market Street"],
-      "postal_code": ["94105"],
-      "common_name": "Gamu Security CA"
-    }
+    "upstream_cert_sniff": true
   }
 }

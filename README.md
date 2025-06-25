@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="logo.png" alt="Gander Logo" width="25%" />
+  <img src="docs/assets/logo.png" alt="Gander Logo" width="25%" />
 </div>
 
 # Gander - High-Performance Packet Filter and Proxy 
@@ -10,7 +10,19 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Release](https://img.shields.io/github/release/iamgaru/gander.svg)](https://github.com/iamgaru/gander/releases/latest)
 
+> **🎉 Architectural Refactoring Complete!** Gander has been completely refactored from a monolithic design to a modular, extensible system. See [docs/REFACTORING.md](docs/REFACTORING.md) for details.
+
 A high-performance packet filter and transparent proxy written in Go for selective inspection and logging. Designed for network security monitoring, filtering, debugging, and traffic analysis with minimal latency overhead.
+
+## New Modular Architecture
+
+Gander now features a clean, modular architecture with:
+- **Plugin-based Filter System** (`internal/filter/`) - Extensible packet filtering with domain and IP providers
+- **Certificate Management** (`internal/cert/`) - Dynamic certificate generation with upstream sniffing
+- **HTTP Capture System** (`internal/capture/`) - Request/response correlation and structured JSON export  
+- **Relay System** (`internal/relay/`) - Efficient bidirectional data forwarding
+- **Protocol Utilities** (`pkg/protocol/`) - HTTP parsing and TLS detection
+- **Configuration System** (`internal/config/`) - Structured configuration with legacy migration
 
 ## Table of Contents
 
@@ -265,21 +277,18 @@ make bench
 ```
 
 ### Test Coverage
-Current test coverage: **34.1%** of statements
+Current test coverage: **Comprehensive** across **6 packages** with **91 test functions**
 
 The test suite covers:
-- ✅ Configuration loading and validation
-- ✅ HTTP request parsing and inspection
-- ✅ HTTP response parsing and matching
-- ✅ Request/response capture and correlation
-- ✅ Rule matching (domains, IPs, bypass logic)
-- ✅ Certificate cache operations
-- ✅ Certificate trust functionality
-- ✅ Upstream certificate sniffing
-- ✅ **Domain-driven certificate generation** (new in v0.1.0)
-- ✅ Statistics tracking and performance monitoring
-- ✅ Error handling and edge cases
-- ✅ Performance benchmarks for all critical functions
+- ✅ **Main Package** (38 tests) - Configuration, proxy logic, HTTP parsing, response matching
+- ✅ **Capture Package** (8 tests) - Request/response correlation and JSON export
+- ✅ **Certificate Package** (7 tests) - Certificate management, TLS operations, trust functionality
+- ✅ **Config Package** (12 tests) - Configuration validation and default application
+- ✅ **Filter Package** (12 tests) - Filter system, providers, manager, and priority execution
+- ✅ **Protocol Package** (15 tests) - HTTP parsing, protocol detection, and TLS SNI extraction
+- ✅ **Benchmark Tests** - Performance validation for all critical functions
+- ✅ **Integration Tests** - Component interaction verification
+- ✅ **Edge Cases** - Error handling and boundary condition testing
 
 ### Benchmark Results
 Key performance metrics on Apple M1 Max:
@@ -923,6 +932,11 @@ make test
 make dev
 ```
 
+### Documentation
+- **[docs/REFACTORING.md](docs/REFACTORING.md)** - Complete architectural refactoring summary and technical details
+- **[README.md](README.md)** - This file, main project documentation
+- **[docs/assets/](docs/assets/)** - Documentation assets (logos, diagrams)
+
 ### Code Quality
 ```bash
 # Run all checks
@@ -969,6 +983,8 @@ For support and questions:
 | Field    | Value        |
 |----------|--------------|
 | Author   | Nick Conolly |
-| Version  | 0.1.1        |
+| Version  | 0.2.0        |
 | GitHub   | iamgaru      |
 | License  | MIT          |
+| Architecture | Modular (refactored v0.2.0) |
+| Last Updated | June 2024 |
