@@ -6,7 +6,8 @@ CONFIG_FILE=config.json
 BUILD_DIR=build
 CERT_DIR=certs
 CAPTURE_DIR=captures
-LOG_FILE=proxy.log
+LOGS_DIR=logs
+LOG_FILE=logs/proxy.log
 
 # Go build flags
 LDFLAGS=-ldflags "-s -w"
@@ -47,9 +48,10 @@ test:
 .PHONY: test-coverage
 test-coverage:
 	@echo "Running tests with coverage..."
-	go test -v -coverprofile=coverage.out ./...
-	go tool cover -html=coverage.out -o coverage.html
-	@echo "Coverage report generated: coverage.html"
+	@mkdir -p $(BUILD_DIR)
+	go test -v -coverprofile=$(BUILD_DIR)/coverage.out ./...
+	go tool cover -html=$(BUILD_DIR)/coverage.out -o $(BUILD_DIR)/coverage.html
+	@echo "Coverage report generated: $(BUILD_DIR)/coverage.html"
 
 # Run benchmarks
 .PHONY: bench
@@ -97,6 +99,7 @@ setup:
 	fi
 	@mkdir -p $(CERT_DIR)
 	@mkdir -p $(CAPTURE_DIR)
+	@mkdir -p $(LOGS_DIR)
 	@echo "Setup complete!"
 
 # Generate CA certificate for testing
@@ -450,7 +453,6 @@ logs-recent:
 clean:
 	@echo "Cleaning build artifacts..."
 	rm -rf $(BUILD_DIR)
-	rm -f coverage.out coverage.html
 	@echo "Clean complete!"
 
 # Deep clean (including logs and captures)
@@ -458,7 +460,7 @@ clean:
 clean-all: clean
 	@echo "Deep cleaning..."
 	rm -rf $(CAPTURE_DIR)
-	rm -f $(LOG_FILE)
+	rm -rf $(LOGS_DIR)
 	@echo "Deep clean complete!"
 
 # Check system requirements

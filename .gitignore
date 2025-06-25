@@ -1,5 +1,5 @@
 # Logs
-proxy.log
+logs/
 *.log
 
 # Build artifacts
@@ -7,6 +7,7 @@ build/
 dist/
 
 # Test artifacts
+build/coverage.*
 coverage.out
 coverage.html
 benchmark-results.txt
@@ -25,6 +26,8 @@ staticcheck-report.txt
 # OS files
 .DS_Store
 Thumbs.db
+*.tmp
+*.temp
 
 # Go specific
 *.exe
