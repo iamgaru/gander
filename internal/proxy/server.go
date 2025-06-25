@@ -168,7 +168,7 @@ func (s *Server) Stop() error {
 		s.logFile.Close()
 	}
 	if s.certManager != nil {
-		s.certManager.Shutdown()
+		_ = s.certManager.Shutdown()
 	}
 
 	log.Println("Proxy server stopped")
@@ -265,12 +265,12 @@ func (s *Server) handleHTTPConnection(clientConn net.Conn, data []byte, info *re
 		log.Printf("Blocked HTTP connection: %s -> %s", info.ClientIP, info.Domain)
 		return
 	case filter.FilterBypass:
-		s.relayer.HandleHTTPRelay(clientConn, data, info, false)
+		_ = s.relayer.HandleHTTPRelay(clientConn, data, info, false)
 	case filter.FilterInspect, filter.FilterCapture:
 		s.stats.IncrementInspected()
-		s.relayer.HandleHTTPRelay(clientConn, data, info, true)
+		_ = s.relayer.HandleHTTPRelay(clientConn, data, info, true)
 	default:
-		s.relayer.HandleHTTPRelay(clientConn, data, info, false)
+		_ = s.relayer.HandleHTTPRelay(clientConn, data, info, false)
 	}
 
 	// Log connection
@@ -311,13 +311,13 @@ func (s *Server) handleTLSConnection(clientConn net.Conn, data []byte, info *rel
 		log.Printf("Blocked HTTPS connection: %s -> %s", info.ClientIP, info.Domain)
 		return
 	case filter.FilterBypass:
-		s.relayer.HandleTransparentRelay(clientConn, data, info)
+		_ = s.relayer.HandleTransparentRelay(clientConn, data, info)
 	case filter.FilterInspect, filter.FilterCapture:
 		s.stats.IncrementInspected()
 		// Filter manager already decided - perform HTTPS inspection
-		s.relayer.HandleHTTPSInspection(clientConn, info.ServerAddr, info)
+		_ = s.relayer.HandleHTTPSInspection(clientConn, info.ServerAddr, info)
 	default:
-		s.relayer.HandleTransparentRelay(clientConn, data, info)
+		_ = s.relayer.HandleTransparentRelay(clientConn, data, info)
 	}
 
 	// Log connection
@@ -325,38 +325,12 @@ func (s *Server) handleTLSConnection(clientConn net.Conn, data []byte, info *rel
 }
 
 // handleUnknownConnection handles unknown protocol connections
-func (s *Server) handleUnknownConnection(clientConn net.Conn, data []byte, info *relay.ConnectionInfo) {
+func (s *Server) handleUnknownConnection(_ net.Conn, _ []byte, info *relay.ConnectionInfo) {
 	info.Protocol = "UNKNOWN"
 
 	// For unknown protocols, try to extract destination from transparent proxy
 	// This is a simplified approach - real implementation would use SO_ORIGINAL_DST
 	log.Printf("Unknown protocol from %s, closing connection", info.ClientIP)
-}
-
-// shouldInspectDomain checks if a domain should have HTTPS inspection
-func (s *Server) shouldInspectDomain(domain string) bool {
-	// Check if domain is in the inspect domains list (domain-driven certificate generation)
-	for _, inspectDomain := range s.config.Rules.InspectDomains {
-		if s.matchesDomain(domain, inspectDomain) {
-			return true
-		}
-	}
-	return false
-}
-
-// matchesDomain checks if a domain matches a pattern (supporting wildcards)
-func (s *Server) matchesDomain(domain, pattern string) bool {
-	if pattern == domain {
-		return true
-	}
-
-	// Handle wildcard patterns
-	if len(pattern) > 0 && pattern[0] == '*' && len(pattern) > 1 {
-		suffix := pattern[1:] // Remove the '*'
-		return len(domain) >= len(suffix) && domain[len(domain)-len(suffix):] == suffix
-	}
-
-	return false
 }
 
 // handleCONNECTRequest handles HTTP CONNECT requests for HTTPS proxy tunneling
@@ -407,7 +381,7 @@ func (s *Server) handleCONNECTRequest(clientConn net.Conn, data []byte, info *re
 	case filter.FilterBlock:
 		log.Printf("Blocked HTTPS connection: %s -> %s", info.ClientIP, info.Domain)
 		// Send error response
-		clientConn.Write([]byte("HTTP/1.1 403 Forbidden\r\n\r\n"))
+		_, _ = clientConn.Write([]byte("HTTP/1.1 403 Forbidden\r\n\r\n"))
 		return
 
 	case filter.FilterBypass:
@@ -429,12 +403,12 @@ func (s *Server) handleCONNECTRequest(clientConn net.Conn, data []byte, info *re
 }
 
 // handleTransparentTunnel establishes a transparent HTTPS tunnel
-func (s *Server) handleTransparentTunnel(clientConn net.Conn, target string, info *relay.ConnectionInfo) {
+func (s *Server) handleTransparentTunnel(clientConn net.Conn, target string, _ *relay.ConnectionInfo) {
 	// Connect to target server
 	serverConn, err := net.Dial("tcp", target)
 	if err != nil {
 		log.Printf("Failed to connect to %s: %v", target, err)
-		clientConn.Write([]byte("HTTP/1.1 502 Bad Gateway\r\n\r\n"))
+		_, _ = clientConn.Write([]byte("HTTP/1.1 502 Bad Gateway\r\n\r\n"))
 		return
 	}
 	defer serverConn.Close()
@@ -465,7 +439,7 @@ func (s *Server) handleMITMTunnel(clientConn net.Conn, target string, info *rela
 	info.BytesWritten = 1
 
 	// Use the relayer to handle HTTPS inspection with proper MITM
-	s.relayer.HandleHTTPSInspection(clientConn, target, info)
+	_ = s.relayer.HandleHTTPSInspection(clientConn, target, info)
 }
 
 // copyData copies data between two connections
@@ -522,7 +496,7 @@ func (s *Server) logConnection(info *relay.ConnectionInfo) {
 
 	// Write to log file
 	if s.logFile != nil {
-		s.logFile.WriteString(logEntry + "\n")
+		_, _ = s.logFile.WriteString(logEntry + "\n")
 	}
 }
 
@@ -701,11 +675,11 @@ func (s *Server) reloadFilterManager(cfg *config.Config) error {
 }
 
 // rulesChanged compares two LegacyRulesConfig structs for changes
-func (s *Server) rulesChanged(old, new config.LegacyRulesConfig) bool {
-	return !s.stringSlicesEqual(old.InspectDomains, new.InspectDomains) ||
-		!s.stringSlicesEqual(old.InspectIPs, new.InspectIPs) ||
-		!s.stringSlicesEqual(old.BypassDomains, new.BypassDomains) ||
-		!s.stringSlicesEqual(old.BypassIPs, new.BypassIPs)
+func (s *Server) rulesChanged(old, newConfig config.LegacyRulesConfig) bool {
+	return !s.stringSlicesEqual(old.InspectDomains, newConfig.InspectDomains) ||
+		!s.stringSlicesEqual(old.InspectIPs, newConfig.InspectIPs) ||
+		!s.stringSlicesEqual(old.BypassDomains, newConfig.BypassDomains) ||
+		!s.stringSlicesEqual(old.BypassIPs, newConfig.BypassIPs)
 }
 
 // stringSlicesEqual compares two string slices for equality

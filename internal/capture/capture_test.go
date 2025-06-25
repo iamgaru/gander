@@ -314,14 +314,14 @@ func TestCaptureConfiguration(t *testing.T) {
 func BenchmarkCaptureRequest(b *testing.B) {
 	tempDir := b.TempDir()
 	manager := NewCaptureManager(tempDir, false)
-	manager.Initialize()
+	_ = manager.Initialize()
 
 	req, _ := http.NewRequest("GET", "http://example.com/benchmark", nil)
 	req.Header.Set("User-Agent", "benchmark-test")
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		manager.CaptureHTTPRequest(req, "192.168.1.100")
+		_ = manager.CaptureHTTPRequest(req, "192.168.1.100")
 	}
 }
 

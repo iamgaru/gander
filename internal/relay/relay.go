@@ -15,6 +15,10 @@ import (
 	"github.com/iamgaru/gander/internal/cert"
 )
 
+const (
+	connectionClose = "close"
+)
+
 // ConnectionInfo contains metadata about a proxy connection (duplicated to avoid import cycle)
 type ConnectionInfo struct {
 	ClientIP     string
@@ -255,8 +259,8 @@ func (r *Relayer) HandleHTTPRelay(clientConn net.Conn, initialData []byte, info 
 		serverConn.Close()
 
 		// Check if connection should be kept alive
-		if req.Header.Get("Connection") == "close" ||
-			resp.Header.Get("Connection") == "close" ||
+		if req.Header.Get("Connection") == connectionClose ||
+			resp.Header.Get("Connection") == connectionClose ||
 			req.ProtoMajor == 1 && req.ProtoMinor == 0 {
 			break
 		}
@@ -364,8 +368,8 @@ func (r *Relayer) handleHTTPSTraffic(clientConn, serverConn *tls.Conn, info *Con
 		}
 
 		// Check if connection should be kept alive
-		if req.Header.Get("Connection") == "close" ||
-			resp.Header.Get("Connection") == "close" ||
+		if req.Header.Get("Connection") == connectionClose ||
+			resp.Header.Get("Connection") == connectionClose ||
 			req.ProtoMajor == 1 && req.ProtoMinor == 0 {
 			break
 		}
@@ -378,12 +382,20 @@ func (r *Relayer) handleHTTPSTraffic(clientConn, serverConn *tls.Conn, info *Con
 func (r *Relayer) bidirectionalRelay(clientConn, serverConn net.Conn, info *ConnectionInfo) error {
 	// Set timeouts
 	if r.readTimeout > 0 {
-		clientConn.SetReadDeadline(time.Now().Add(r.readTimeout))
-		serverConn.SetReadDeadline(time.Now().Add(r.readTimeout))
+		if err := clientConn.SetReadDeadline(time.Now().Add(r.readTimeout)); err != nil {
+			log.Printf("Failed to set client read deadline: %v", err)
+		}
+		if err := serverConn.SetReadDeadline(time.Now().Add(r.readTimeout)); err != nil {
+			log.Printf("Failed to set server read deadline: %v", err)
+		}
 	}
 	if r.writeTimeout > 0 {
-		clientConn.SetWriteDeadline(time.Now().Add(r.writeTimeout))
-		serverConn.SetWriteDeadline(time.Now().Add(r.writeTimeout))
+		if err := clientConn.SetWriteDeadline(time.Now().Add(r.writeTimeout)); err != nil {
+			log.Printf("Failed to set client write deadline: %v", err)
+		}
+		if err := serverConn.SetWriteDeadline(time.Now().Add(r.writeTimeout)); err != nil {
+			log.Printf("Failed to set server write deadline: %v", err)
+		}
 	}
 
 	// Use wait group to handle both directions

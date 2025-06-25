@@ -160,7 +160,7 @@ func (f *IPPacketFilter) Priority() int {
 	return 90 // Slightly lower than domain filter
 }
 
-func (f *IPPacketFilter) ShouldFilter(ctx context.Context, filterCtx *filter.FilterContext) (filter.FilterResult, error) {
+func (f *IPPacketFilter) ShouldFilter(_ context.Context, filterCtx *filter.FilterContext) (filter.FilterResult, error) {
 	clientIP := filterCtx.ClientIP
 	if clientIP == nil {
 		return filter.FilterAllow, nil
@@ -203,7 +203,7 @@ func (f *IPInspectionFilter) ShouldFilter(ctx context.Context, filterCtx *filter
 	return f.InspectRequest(ctx, filterCtx)
 }
 
-func (f *IPInspectionFilter) InspectRequest(ctx context.Context, filterCtx *filter.FilterContext) (filter.FilterResult, error) {
+func (f *IPInspectionFilter) InspectRequest(_ context.Context, filterCtx *filter.FilterContext) (filter.FilterResult, error) {
 	clientIP := filterCtx.ClientIP
 	if clientIP == nil {
 		return filter.FilterAllow, nil
@@ -217,7 +217,7 @@ func (f *IPInspectionFilter) InspectRequest(ctx context.Context, filterCtx *filt
 	return filter.FilterAllow, nil
 }
 
-func (f *IPInspectionFilter) InspectResponse(ctx context.Context, filterCtx *filter.FilterContext) (filter.FilterResult, error) {
+func (f *IPInspectionFilter) InspectResponse(_ context.Context, filterCtx *filter.FilterContext) (filter.FilterResult, error) {
 	clientIP := filterCtx.ClientIP
 	if clientIP == nil {
 		return filter.FilterAllow, nil

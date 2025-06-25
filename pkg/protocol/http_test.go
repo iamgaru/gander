@@ -348,7 +348,7 @@ func BenchmarkExtractHTTPHost(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		ExtractHTTPHost(data)
+		_ = ExtractHTTPHost(data)
 	}
 }
 
@@ -357,7 +357,7 @@ func BenchmarkParseHTTPRequest(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		ParseHTTPRequest(data)
+		_, _ = ParseHTTPRequest(data)
 	}
 }
 
@@ -366,6 +366,6 @@ func BenchmarkIsHTTPRequest(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		IsHTTPRequest(data)
+		_ = IsHTTPRequest(data)
 	}
 }

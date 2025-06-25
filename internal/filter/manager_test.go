@@ -21,7 +21,7 @@ func (m *mockPacketFilter) Priority() int {
 	return 100
 }
 
-func (m *mockPacketFilter) ShouldFilter(ctx context.Context, filterCtx *FilterContext) (FilterResult, error) {
+func (m *mockPacketFilter) ShouldFilter(_ context.Context, filterCtx *FilterContext) (FilterResult, error) {
 	return m.result, m.err
 }
 
@@ -39,11 +39,11 @@ func (m *mockInspectionFilter) Priority() int {
 	return 100
 }
 
-func (m *mockInspectionFilter) ShouldFilter(ctx context.Context, filterCtx *FilterContext) (FilterResult, error) {
+func (m *mockInspectionFilter) ShouldFilter(_ context.Context, filterCtx *FilterContext) (FilterResult, error) {
 	return m.result, m.err
 }
 
-func (m *mockInspectionFilter) InspectRequest(ctx context.Context, filterCtx *FilterContext) (FilterResult, error) {
+func (m *mockInspectionFilter) InspectRequest(_ context.Context, filterCtx *FilterContext) (FilterResult, error) {
 	return m.result, m.err
 }
 
@@ -62,7 +62,7 @@ func (m *mockFilterProvider) Name() string {
 	return m.name
 }
 
-func (m *mockFilterProvider) Initialize(config map[string]interface{}) error {
+func (m *mockFilterProvider) Initialize(_ map[string]interface{}) error {
 	return nil
 }
 
@@ -353,7 +353,7 @@ func TestHookExecution(t *testing.T) {
 		name:          "test",
 		packetFilters: []PacketFilter{filter},
 	}
-	manager.RegisterProvider("test", provider)
+	_ = manager.RegisterProvider("test", provider)
 
 	ctx := context.Background()
 	filterCtx := &FilterContext{
@@ -379,8 +379,8 @@ func TestGetProviders(t *testing.T) {
 	provider1 := &mockFilterProvider{name: "provider1"}
 	provider2 := &mockFilterProvider{name: "provider2"}
 
-	manager.RegisterProvider("provider1", provider1)
-	manager.RegisterProvider("provider2", provider2)
+	_ = manager.RegisterProvider("provider1", provider1)
+	_ = manager.RegisterProvider("provider2", provider2)
 
 	providers := manager.GetProviders()
 	if len(providers) != 2 {
@@ -414,8 +414,8 @@ func TestShutdown(t *testing.T) {
 	provider1 := &mockFilterProvider{name: "provider1"}
 	provider2 := &mockFilterProvider{name: "provider2"}
 
-	manager.RegisterProvider("provider1", provider1)
-	manager.RegisterProvider("provider2", provider2)
+	_ = manager.RegisterProvider("provider1", provider1)
+	_ = manager.RegisterProvider("provider2", provider2)
 
 	err := manager.Shutdown()
 	if err != nil {
@@ -459,7 +459,7 @@ func TestFilterPriority(t *testing.T) {
 		packetFilters: []PacketFilter{lowFilter, highFilter}, // Add in reverse order
 	}
 
-	manager.RegisterProvider("test", provider)
+	_ = manager.RegisterProvider("test", provider)
 
 	ctx := context.Background()
 	filterCtx := &FilterContext{
@@ -489,7 +489,7 @@ func BenchmarkProcessPacket(b *testing.B) {
 		name:          "bench",
 		packetFilters: []PacketFilter{filter},
 	}
-	manager.RegisterProvider("bench", provider)
+	_ = manager.RegisterProvider("bench", provider)
 
 	ctx := context.Background()
 	filterCtx := &FilterContext{
@@ -499,7 +499,7 @@ func BenchmarkProcessPacket(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		manager.ProcessPacket(ctx, filterCtx)
+		_, _ = manager.ProcessPacket(ctx, filterCtx)
 	}
 }
 
@@ -508,6 +508,6 @@ func BenchmarkRegisterProvider(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		manager := NewManager(false)
 		provider := &mockFilterProvider{name: "bench"}
-		manager.RegisterProvider("bench", provider)
+		_ = manager.RegisterProvider("bench", provider)
 	}
 }

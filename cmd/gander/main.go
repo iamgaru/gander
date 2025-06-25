@@ -51,7 +51,7 @@ func main() {
 	}
 
 	// Add callback for config changes
-	configWatcher.AddCallback(func(oldConfig, newConfig *config.Config) error {
+	configWatcher.AddCallback(func(_, newConfig *config.Config) error {
 		log.Printf("Config file changed, reloading server configuration...")
 
 		// Reload server configuration
@@ -72,7 +72,7 @@ func main() {
 	if err := configWatcher.Start(cfg); err != nil {
 		log.Fatalf("Failed to start config watcher: %v", err)
 	}
-	defer configWatcher.Stop()
+	defer func() { _ = configWatcher.Stop() }()
 
 	// Start the server
 	if err := server.Start(); err != nil {

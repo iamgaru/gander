@@ -123,7 +123,7 @@ func (f *CustomPacketFilter) Priority() int {
 	return 50 // Medium priority
 }
 
-func (f *CustomPacketFilter) ShouldFilter(ctx context.Context, filterCtx *filter.FilterContext) (filter.FilterResult, error) {
+func (f *CustomPacketFilter) ShouldFilter(_ context.Context, _ *filter.FilterContext) (filter.FilterResult, error) {
 	// Check business hours
 	if !f.provider.isBusinessHours() {
 		if f.provider.enableDebug {
@@ -153,7 +153,7 @@ func (f *CustomInspectionFilter) ShouldFilter(ctx context.Context, filterCtx *fi
 	return f.InspectRequest(ctx, filterCtx)
 }
 
-func (f *CustomInspectionFilter) InspectRequest(ctx context.Context, filterCtx *filter.FilterContext) (filter.FilterResult, error) {
+func (f *CustomInspectionFilter) InspectRequest(_ context.Context, filterCtx *filter.FilterContext) (filter.FilterResult, error) {
 	// Extract user agent from request data if available
 	if filterCtx.RequestData != nil {
 		// This is a simplified example - in reality you'd parse the HTTP headers properly
@@ -178,7 +178,7 @@ func (f *CustomInspectionFilter) InspectRequest(ctx context.Context, filterCtx *
 	return filter.FilterAllow, nil
 }
 
-func (f *CustomInspectionFilter) InspectResponse(ctx context.Context, filterCtx *filter.FilterContext) (filter.FilterResult, error) {
+func (f *CustomInspectionFilter) InspectResponse(_ context.Context, _ *filter.FilterContext) (filter.FilterResult, error) {
 	// Custom response inspection logic could go here
 	// For this example, we'll just allow all responses
 	return filter.FilterAllow, nil
