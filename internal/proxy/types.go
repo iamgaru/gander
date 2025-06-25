@@ -76,11 +76,20 @@ func (ps *ProxyStats) AddBytesTransferred(bytes int64) {
 	ps.BytesTransferred += bytes
 }
 
+// ProxyStatsSnapshot represents a snapshot of proxy statistics without mutex
+type ProxyStatsSnapshot struct {
+	TotalConnections     int64 `json:"total_connections"`
+	ActiveConnections    int64 `json:"active_connections"`
+	BytesTransferred     int64 `json:"bytes_transferred"`
+	InspectedConnections int64 `json:"inspected_connections"`
+	CapturedRequests     int64 `json:"captured_requests"`
+}
+
 // GetStats returns a copy of current statistics
-func (ps *ProxyStats) GetStats() ProxyStats {
+func (ps *ProxyStats) GetStats() ProxyStatsSnapshot {
 	ps.mutex.RLock()
 	defer ps.mutex.RUnlock()
-	return ProxyStats{
+	return ProxyStatsSnapshot{
 		TotalConnections:     ps.TotalConnections,
 		ActiveConnections:    ps.ActiveConnections,
 		BytesTransferred:     ps.BytesTransferred,

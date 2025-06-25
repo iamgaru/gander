@@ -495,7 +495,7 @@ func (cm *CaptureManager) cleanupPendingRequests() {
 }
 
 // GetStats returns capture statistics
-func (cm *CaptureManager) GetStats() *CaptureStats {
+func (cm *CaptureManager) GetStats() *CaptureStatsSnapshot {
 	cm.requestMutex.RLock()
 	pendingCount := int64(len(cm.pendingRequests))
 	cm.requestMutex.RUnlock()
@@ -559,11 +559,23 @@ func (cs *CaptureStats) AddBytesProcessed(bytes int64) {
 	}
 }
 
+// CaptureStatsSnapshot represents a snapshot of capture statistics without mutex
+type CaptureStatsSnapshot struct {
+	RequestsCaptured    int64 `json:"requests_captured"`
+	ResponsesCaptured   int64 `json:"responses_captured"`
+	PairsCaptured       int64 `json:"pairs_captured"`
+	PendingRequests     int64 `json:"pending_requests"`
+	CorrelationFailures int64 `json:"correlation_failures"`
+	SaveErrors          int64 `json:"save_errors"`
+	TotalBytesProcessed int64 `json:"total_bytes_processed"`
+	AverageBodySize     int64 `json:"average_body_size"`
+}
+
 // GetStats returns a copy of current statistics
-func (cs *CaptureStats) GetStats() CaptureStats {
+func (cs *CaptureStats) GetStats() CaptureStatsSnapshot {
 	cs.mutex.RLock()
 	defer cs.mutex.RUnlock()
-	return CaptureStats{
+	return CaptureStatsSnapshot{
 		RequestsCaptured:    cs.RequestsCaptured,
 		ResponsesCaptured:   cs.ResponsesCaptured,
 		PairsCaptured:       cs.PairsCaptured,

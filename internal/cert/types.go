@@ -110,7 +110,7 @@ type CertificateProvider interface {
 	LoadCA() error
 
 	// GetStats returns certificate management statistics
-	GetStats() *CertStats
+	GetStats() *CertStatsSnapshot
 
 	// ClearCache clears expired certificates from cache
 	ClearCache() int
@@ -152,11 +152,23 @@ func (cs *CertStats) IncrementUpstreamSniff() {
 	cs.UpstreamSniffs++
 }
 
+// CertStatsSnapshot represents a snapshot of certificate statistics without mutex
+type CertStatsSnapshot struct {
+	GeneratedCerts int64 `json:"generated_certs"`
+	CachedCerts    int64 `json:"cached_certs"`
+	CacheHits      int64 `json:"cache_hits"`
+	CacheMisses    int64 `json:"cache_misses"`
+	ExpiredCerts   int64 `json:"expired_certs"`
+	UpstreamSniffs int64 `json:"upstream_sniffs"`
+	CALoadTime     int64 `json:"ca_load_time_ms"`
+	AvgGenTime     int64 `json:"avg_generation_time_ms"`
+}
+
 // GetStats returns a copy of current statistics
-func (cs *CertStats) GetStats() CertStats {
+func (cs *CertStats) GetStats() CertStatsSnapshot {
 	cs.mutex.RLock()
 	defer cs.mutex.RUnlock()
-	return CertStats{
+	return CertStatsSnapshot{
 		GeneratedCerts: cs.GeneratedCerts,
 		CachedCerts:    cs.CachedCerts,
 		CacheHits:      cs.CacheHits,

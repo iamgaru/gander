@@ -525,11 +525,25 @@ func (rs *RelayStats) UpdateLatency(latency int64) {
 	}
 }
 
+// RelayStatsSnapshot represents a snapshot of relay statistics without mutex
+type RelayStatsSnapshot struct {
+	TotalConnections  int64
+	ActiveConnections int64
+	FastRelays        int64
+	InspectionRelays  int64
+	TransparentRelays int64
+	HTTPRequests      int64
+	HTTPSRequests     int64
+	BytesTransferred  int64
+	CertificatesUsed  int64
+	AverageLatency    int64
+}
+
 // GetStats returns a copy of current statistics
-func (rs *RelayStats) GetStats() RelayStats {
+func (rs *RelayStats) GetStats() RelayStatsSnapshot {
 	rs.mutex.RLock()
 	defer rs.mutex.RUnlock()
-	return RelayStats{
+	return RelayStatsSnapshot{
 		TotalConnections:  rs.TotalConnections,
 		ActiveConnections: rs.ActiveConnections,
 		FastRelays:        rs.FastRelays,

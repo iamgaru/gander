@@ -198,7 +198,7 @@ func reportStatistics(server *proxy.Server) {
 	for range ticker.C {
 		stats := server.GetStats()
 
-		if proxyStats, ok := stats["proxy"].(proxy.ProxyStats); ok {
+		if proxyStats, ok := stats["proxy"].(proxy.ProxyStatsSnapshot); ok {
 			log.Printf("Statistics: %d total connections, %d active, %d inspected, %.2f MB transferred",
 				proxyStats.TotalConnections,
 				proxyStats.ActiveConnections,

@@ -410,7 +410,7 @@ func (cm *DefaultCertManager) SniffUpstreamCert(domain string, port int) (*Upstr
 }
 
 // GetStats returns certificate management statistics
-func (cm *DefaultCertManager) GetStats() *CertStats {
+func (cm *DefaultCertManager) GetStats() *CertStatsSnapshot {
 	stats := cm.stats.GetStats()
 
 	// Add current cache size
