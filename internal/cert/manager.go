@@ -12,7 +12,6 @@ import (
 	"math/big"
 	"net"
 	"os"
-	"path/filepath"
 	"strings"
 	"time"
 )
@@ -219,11 +218,17 @@ func (cm *DefaultCertManager) GenerateCertificate(domain string, template *Upstr
 		return nil, fmt.Errorf("failed to generate private key: %w", err)
 	}
 
+	// Determine Common Name - use custom if provided, otherwise use domain
+	commonName := domain
+	if cm.config.CustomCommonName != "" {
+		commonName = cm.config.CustomCommonName
+	}
+
 	// Create certificate template
 	certTemplate := &x509.Certificate{
 		SerialNumber: big.NewInt(time.Now().UnixNano()),
 		Subject: pkix.Name{
-			CommonName:   domain,
+			CommonName:   commonName,
 			Organization: []string{cm.config.Organization},
 			Country:      []string{cm.config.Country},
 			Province:     []string{cm.config.Province},
@@ -307,12 +312,8 @@ func (cm *DefaultCertManager) GenerateCertificate(domain string, template *Upstr
 		PrivateKey:  privateKey,
 	}
 
-	// Save certificate to disk if configured
-	if cm.config.CertDir != "" {
-		if err := cm.saveCertificateToDisk(domain, certDER, privateKey); err != nil {
-			log.Printf("Failed to save certificate to disk: %v", err)
-		}
-	}
+	// Note: MITM certificates are kept in memory only for security
+	// No disk storage for generated domain certificates
 
 	managedCert := &Certificate{
 		Domain:     domain,
@@ -337,34 +338,7 @@ func (cm *DefaultCertManager) GenerateCertificate(domain string, template *Upstr
 	return managedCert, nil
 }
 
-// saveCertificateToDisk saves a certificate and key to disk
-func (cm *DefaultCertManager) saveCertificateToDisk(domain string, certDER []byte, privateKey *rsa.PrivateKey) error {
-	// Create safe filename
-	safeFilename := strings.ReplaceAll(domain, "*", "wildcard")
-	safeFilename = strings.ReplaceAll(safeFilename, ":", "_")
-
-	// Save certificate
-	certPath := filepath.Join(cm.config.CertDir, fmt.Sprintf("%s.crt", safeFilename))
-	certPEM := pem.EncodeToMemory(&pem.Block{
-		Type:  "CERTIFICATE",
-		Bytes: certDER,
-	})
-	if err := os.WriteFile(certPath, certPEM, 0644); err != nil {
-		return fmt.Errorf("failed to write certificate: %w", err)
-	}
-
-	// Save private key
-	keyPath := filepath.Join(cm.config.CertDir, fmt.Sprintf("%s.key", safeFilename))
-	keyPEM := pem.EncodeToMemory(&pem.Block{
-		Type:  "RSA PRIVATE KEY",
-		Bytes: x509.MarshalPKCS1PrivateKey(privateKey),
-	})
-	if err := os.WriteFile(keyPath, keyPEM, 0600); err != nil {
-		return fmt.Errorf("failed to write private key: %w", err)
-	}
-
-	return nil
-}
+// Note: saveCertificateToDisk method removed - certificates are now kept in memory only
 
 // SniffUpstreamCert retrieves certificate information from upstream server
 func (cm *DefaultCertManager) SniffUpstreamCert(domain string, port int) (*UpstreamCertInfo, error) {

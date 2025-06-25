@@ -1,11 +1,14 @@
 package proxy
 
 import (
+	"bytes"
 	"context"
+	"io"
 	"log"
 	"net"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/iamgaru/gander/internal/capture"
@@ -52,6 +55,32 @@ func NewServer(cfg *config.Config, filterManager *filter.Manager) (*Server, erro
 	// Initialize certificate manager
 	certManager := cert.NewCertificateManager(cfg.Logging.EnableDebug)
 	if cfg.TLS.AutoGenerate {
+		// Set default certificate details
+		organization := "Gamu Corporation"
+		country := "US"
+		province := "CA"
+		locality := "San Francisco"
+		commonName := ""
+
+		// Use custom details if provided
+		if cfg.TLS.CustomDetails != nil {
+			if len(cfg.TLS.CustomDetails.Organization) > 0 {
+				organization = cfg.TLS.CustomDetails.Organization[0]
+			}
+			if len(cfg.TLS.CustomDetails.Country) > 0 {
+				country = cfg.TLS.CustomDetails.Country[0]
+			}
+			if len(cfg.TLS.CustomDetails.Province) > 0 {
+				province = cfg.TLS.CustomDetails.Province[0]
+			}
+			if len(cfg.TLS.CustomDetails.Locality) > 0 {
+				locality = cfg.TLS.CustomDetails.Locality[0]
+			}
+			if cfg.TLS.CustomDetails.CommonName != "" {
+				commonName = cfg.TLS.CustomDetails.CommonName
+			}
+		}
+
 		certConfig := &cert.CertConfig{
 			CertFile:          cfg.TLS.CertFile,
 			KeyFile:           cfg.TLS.KeyFile,
@@ -62,10 +91,11 @@ func NewServer(cfg *config.Config, filterManager *filter.Manager) (*Server, erro
 			ValidDays:         cfg.TLS.ValidDays,
 			UpstreamCertSniff: cfg.TLS.UpstreamCertSniff,
 			KeySize:           2048,
-			Organization:      "Gander Proxy",
-			Country:           "US",
-			Province:          "CA",
-			Locality:          "San Francisco",
+			Organization:      organization,
+			Country:           country,
+			Province:          province,
+			Locality:          locality,
+			CustomCommonName:  commonName,
 		}
 
 		if err := certManager.Initialize(certConfig); err != nil {
@@ -197,15 +227,21 @@ func (s *Server) handleConnection(clientConn net.Conn) {
 
 // handleHTTPConnection handles HTTP connections
 func (s *Server) handleHTTPConnection(clientConn net.Conn, data []byte, info *relay.ConnectionInfo) {
-	// Extract host from HTTP request
-	host := protocol.ExtractHTTPHost(data)
+	// Check if this is a CONNECT request (for HTTPS through proxy)
+	if bytes.HasPrefix(data, []byte("CONNECT ")) {
+		s.handleCONNECTRequest(clientConn, data, info)
+		return
+	}
+
+	// Extract host for regular HTTP requests
+	host, serverAddr := s.extractHostAndServerAddr(data)
 	if host == "" {
 		log.Printf("Failed to extract host from HTTP request")
 		return
 	}
 
 	info.Domain = host
-	info.ServerAddr = host + ":80"
+	info.ServerAddr = serverAddr
 	info.Protocol = "HTTP"
 
 	// Apply filters
@@ -278,12 +314,8 @@ func (s *Server) handleTLSConnection(clientConn net.Conn, data []byte, info *rel
 		s.relayer.HandleTransparentRelay(clientConn, data, info)
 	case filter.FilterInspect, filter.FilterCapture:
 		s.stats.IncrementInspected()
-		// Only perform HTTPS inspection if domain is in inspect list
-		if s.shouldInspectDomain(info.Domain) {
-			s.relayer.HandleHTTPSInspection(clientConn, info.ServerAddr, info)
-		} else {
-			s.relayer.HandleTransparentRelay(clientConn, data, info)
-		}
+		// Filter manager already decided - perform HTTPS inspection
+		s.relayer.HandleHTTPSInspection(clientConn, info.ServerAddr, info)
 	default:
 		s.relayer.HandleTransparentRelay(clientConn, data, info)
 	}
@@ -325,6 +357,152 @@ func (s *Server) matchesDomain(domain, pattern string) bool {
 	}
 
 	return false
+}
+
+// handleCONNECTRequest handles HTTP CONNECT requests for HTTPS proxy tunneling
+func (s *Server) handleCONNECTRequest(clientConn net.Conn, data []byte, info *relay.ConnectionInfo) {
+	// Parse CONNECT request
+	lines := bytes.Split(data, []byte("\r\n"))
+	if len(lines) == 0 {
+		log.Printf("Invalid CONNECT request")
+		return
+	}
+
+	requestLine := string(lines[0])
+	parts := strings.Fields(requestLine)
+	if len(parts) < 2 {
+		log.Printf("Invalid CONNECT request line: %s", requestLine)
+		return
+	}
+
+	target := parts[1] // e.g., "mail.google.com:443"
+
+	// Extract domain without port for filtering
+	host := target
+	if colonIdx := strings.LastIndex(target, ":"); colonIdx != -1 {
+		host = target[:colonIdx]
+	}
+
+	info.Domain = host
+	info.ServerAddr = target
+	info.Protocol = "HTTPS"
+
+	// Apply filters
+	ctx := context.Background()
+	filterCtx := &filter.FilterContext{
+		ClientIP:   net.ParseIP(info.ClientIP),
+		ServerAddr: info.ServerAddr,
+		Domain:     info.Domain,
+		Protocol:   info.Protocol,
+		IsHTTPS:    true,
+	}
+
+	decision, err := s.filterManager.ProcessPacket(ctx, filterCtx)
+	if err != nil {
+		log.Printf("Filter error: %v", err)
+		return
+	}
+
+	switch decision.Result {
+	case filter.FilterBlock:
+		log.Printf("Blocked HTTPS connection: %s -> %s", info.ClientIP, info.Domain)
+		// Send error response
+		clientConn.Write([]byte("HTTP/1.1 403 Forbidden\r\n\r\n"))
+		return
+
+	case filter.FilterBypass:
+		// Transparent proxy - establish tunnel without inspection
+		s.handleTransparentTunnel(clientConn, target, info)
+
+	case filter.FilterInspect, filter.FilterCapture:
+		s.stats.IncrementInspected()
+		// MITM inspection - intercept with custom certificate
+		s.handleMITMTunnel(clientConn, target, info)
+
+	default:
+		// Default to transparent tunnel
+		s.handleTransparentTunnel(clientConn, target, info)
+	}
+
+	// Log connection
+	s.logConnection(info)
+}
+
+// handleTransparentTunnel establishes a transparent HTTPS tunnel
+func (s *Server) handleTransparentTunnel(clientConn net.Conn, target string, info *relay.ConnectionInfo) {
+	// Connect to target server
+	serverConn, err := net.Dial("tcp", target)
+	if err != nil {
+		log.Printf("Failed to connect to %s: %v", target, err)
+		clientConn.Write([]byte("HTTP/1.1 502 Bad Gateway\r\n\r\n"))
+		return
+	}
+	defer serverConn.Close()
+
+	// Send 200 Connection established
+	_, err = clientConn.Write([]byte("HTTP/1.1 200 Connection established\r\n\r\n"))
+	if err != nil {
+		log.Printf("Failed to send CONNECT response: %v", err)
+		return
+	}
+
+	// Start bidirectional relay
+	go s.copyData(clientConn, serverConn, "client->server")
+	s.copyData(serverConn, clientConn, "server->client")
+}
+
+// handleMITMTunnel establishes a MITM tunnel with certificate interception
+func (s *Server) handleMITMTunnel(clientConn net.Conn, target string, info *relay.ConnectionInfo) {
+	// Send 200 Connection established to make client think tunnel is ready
+	_, err := clientConn.Write([]byte("HTTP/1.1 200 Connection established\r\n\r\n"))
+	if err != nil {
+		log.Printf("Failed to send CONNECT response: %v", err)
+		return
+	}
+
+	// Mark as inspected since we're doing MITM
+	info.BytesRead = 1 // Mark as inspected
+	info.BytesWritten = 1
+
+	// Use the relayer to handle HTTPS inspection with proper MITM
+	s.relayer.HandleHTTPSInspection(clientConn, target, info)
+}
+
+// copyData copies data between two connections
+func (s *Server) copyData(dst, src net.Conn, direction string) {
+	defer dst.Close()
+	defer src.Close()
+
+	buffer := s.bufferPool.Get()
+	defer s.bufferPool.Put(buffer)
+
+	_, err := io.Copy(dst, src)
+	if err != nil && !strings.Contains(err.Error(), "use of closed network connection") {
+		log.Printf("Error copying data (%s): %v", direction, err)
+	}
+}
+
+// extractHostAndServerAddr extracts host and server address from HTTP request
+// Handles CONNECT requests properly to avoid double port assignment
+func (s *Server) extractHostAndServerAddr(data []byte) (string, string) {
+	// For regular HTTP requests, extract from Host header
+	host := protocol.ExtractHTTPHost(data)
+	if host == "" {
+		return "", ""
+	}
+
+	// Check if host already includes port
+	if strings.Contains(host, ":") {
+		// Host already has port, use as-is
+		hostOnly := host
+		if colonIdx := strings.LastIndex(host, ":"); colonIdx != -1 {
+			hostOnly = host[:colonIdx]
+		}
+		return hostOnly, host
+	}
+
+	// No port specified, add default HTTP port
+	return host, host + ":80"
 }
 
 // logConnection logs connection information
@@ -387,4 +565,158 @@ func (s *Server) GetStats() map[string]interface{} {
 		"capture": captureStats,
 		"certs":   certStats,
 	}
+}
+
+// ReloadConfig reloads the server configuration
+func (s *Server) ReloadConfig(newConfig *config.Config) error {
+	log.Printf("Reloading server configuration...")
+
+	// Update configuration
+	oldConfig := s.config
+	s.config = newConfig
+
+	// Update debug settings for existing components
+	if s.relayer != nil {
+		s.relayer.SetDebug(newConfig.Logging.EnableDebug)
+	}
+
+	// Update filter manager if rules changed
+	if s.rulesChanged(oldConfig.Rules, newConfig.Rules) {
+		if err := s.reloadFilterManager(newConfig); err != nil {
+			log.Printf("Failed to reload filter manager: %v", err)
+			// Revert config on failure
+			s.config = oldConfig
+			return err
+		}
+	}
+
+	// Update certificate manager if TLS settings changed
+	if oldConfig.TLS != newConfig.TLS {
+		if err := s.reloadCertificateManager(newConfig); err != nil {
+			log.Printf("Failed to reload certificate manager: %v", err)
+			// Revert config on failure
+			s.config = oldConfig
+			return err
+		}
+	}
+
+	// Update capture manager if logging settings changed
+	if oldConfig.Logging.CaptureDir != newConfig.Logging.CaptureDir {
+		if err := s.reloadCaptureManager(newConfig); err != nil {
+			log.Printf("Failed to reload capture manager: %v", err)
+			// Revert config on failure
+			s.config = oldConfig
+			return err
+		}
+	}
+
+	log.Printf("Server configuration reloaded successfully")
+	return nil
+}
+
+// reloadCertificateManager reinitializes the certificate manager with new config
+func (s *Server) reloadCertificateManager(cfg *config.Config) error {
+	if !cfg.TLS.AutoGenerate {
+		return nil
+	}
+
+	// Set default certificate details
+	organization := "Gamu Corporation"
+	country := "US"
+	province := "CA"
+	locality := "San Francisco"
+	commonName := ""
+
+	// Use custom details if provided
+	if cfg.TLS.CustomDetails != nil {
+		if len(cfg.TLS.CustomDetails.Organization) > 0 {
+			organization = cfg.TLS.CustomDetails.Organization[0]
+		}
+		if len(cfg.TLS.CustomDetails.Country) > 0 {
+			country = cfg.TLS.CustomDetails.Country[0]
+		}
+		if len(cfg.TLS.CustomDetails.Province) > 0 {
+			province = cfg.TLS.CustomDetails.Province[0]
+		}
+		if len(cfg.TLS.CustomDetails.Locality) > 0 {
+			locality = cfg.TLS.CustomDetails.Locality[0]
+		}
+		if cfg.TLS.CustomDetails.CommonName != "" {
+			commonName = cfg.TLS.CustomDetails.CommonName
+		}
+	}
+
+	certConfig := &cert.CertConfig{
+		CertFile:          cfg.TLS.CertFile,
+		KeyFile:           cfg.TLS.KeyFile,
+		CAFile:            cfg.TLS.CAFile,
+		CAKeyFile:         cfg.TLS.CAKeyFile,
+		CertDir:           cfg.TLS.CertDir,
+		AutoGenerate:      cfg.TLS.AutoGenerate,
+		ValidDays:         cfg.TLS.ValidDays,
+		UpstreamCertSniff: cfg.TLS.UpstreamCertSniff,
+		KeySize:           2048,
+		Organization:      organization,
+		Country:           country,
+		Province:          province,
+		Locality:          locality,
+		CustomCommonName:  commonName,
+	}
+
+	return s.certManager.Initialize(certConfig)
+}
+
+// reloadCaptureManager reinitializes the capture manager with new config
+func (s *Server) reloadCaptureManager(cfg *config.Config) error {
+	// Create new capture manager
+	newCaptureManager := capture.NewCaptureManager(cfg.Logging.CaptureDir, cfg.Logging.EnableDebug)
+	if err := newCaptureManager.Initialize(); err != nil {
+		return err
+	}
+
+	// Replace the old capture manager
+	s.captureManager = newCaptureManager
+	s.relayer.SetCaptureHandler(newCaptureManager)
+
+	return nil
+}
+
+// reloadFilterManager reloads the filter manager with new rules
+func (s *Server) reloadFilterManager(cfg *config.Config) error {
+	// Create provider configs from legacy rules
+	providerConfigs := map[string]interface{}{
+		"domain": map[string]interface{}{
+			"inspect_domains": cfg.Rules.InspectDomains,
+			"bypass_domains":  cfg.Rules.BypassDomains,
+			"enable_debug":    cfg.Logging.EnableDebug,
+		},
+		"ip": map[string]interface{}{
+			"inspect_ips":  cfg.Rules.InspectIPs,
+			"bypass_ips":   cfg.Rules.BypassIPs,
+			"enable_debug": cfg.Logging.EnableDebug,
+		},
+	}
+
+	return s.filterManager.ReloadProviders(providerConfigs)
+}
+
+// rulesChanged compares two LegacyRulesConfig structs for changes
+func (s *Server) rulesChanged(old, new config.LegacyRulesConfig) bool {
+	return !s.stringSlicesEqual(old.InspectDomains, new.InspectDomains) ||
+		!s.stringSlicesEqual(old.InspectIPs, new.InspectIPs) ||
+		!s.stringSlicesEqual(old.BypassDomains, new.BypassDomains) ||
+		!s.stringSlicesEqual(old.BypassIPs, new.BypassIPs)
+}
+
+// stringSlicesEqual compares two string slices for equality
+func (s *Server) stringSlicesEqual(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }

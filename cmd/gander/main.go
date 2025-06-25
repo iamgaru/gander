@@ -44,6 +44,36 @@ func main() {
 		log.Fatalf("Failed to create proxy server: %v", err)
 	}
 
+	// Set up config file watcher
+	configWatcher, err := config.NewConfigWatcher(configFile, loader)
+	if err != nil {
+		log.Fatalf("Failed to create config watcher: %v", err)
+	}
+
+	// Add callback for config changes
+	configWatcher.AddCallback(func(oldConfig, newConfig *config.Config) error {
+		log.Printf("Config file changed, reloading server configuration...")
+
+		// Reload server configuration
+		if err := server.ReloadConfig(newConfig); err != nil {
+			return fmt.Errorf("failed to reload server config: %w", err)
+		}
+
+		// Reinitialize filter providers with new config
+		if err := reinitializeFilterProviders(filterManager, newConfig); err != nil {
+			return fmt.Errorf("failed to reinitialize filter providers: %w", err)
+		}
+
+		log.Printf("Configuration successfully reloaded")
+		return nil
+	})
+
+	// Start config watcher
+	if err := configWatcher.Start(cfg); err != nil {
+		log.Fatalf("Failed to start config watcher: %v", err)
+	}
+	defer configWatcher.Stop()
+
 	// Start the server
 	if err := server.Start(); err != nil {
 		log.Fatalf("Failed to start proxy server: %v", err)
@@ -188,6 +218,25 @@ func containsCIDR(ip string) bool {
 		}
 	}
 	return false
+}
+
+// reinitializeFilterProviders reinitializes filter providers with new configuration
+func reinitializeFilterProviders(manager *filter.Manager, cfg *config.Config) error {
+	// Create provider configs from legacy rules
+	providerConfigs := map[string]interface{}{
+		"domain": map[string]interface{}{
+			"inspect_domains": cfg.Rules.InspectDomains,
+			"bypass_domains":  cfg.Rules.BypassDomains,
+			"enable_debug":    cfg.Logging.EnableDebug,
+		},
+		"ip": map[string]interface{}{
+			"inspect_ips":  cfg.Rules.InspectIPs,
+			"bypass_ips":   cfg.Rules.BypassIPs,
+			"enable_debug": cfg.Logging.EnableDebug,
+		},
+	}
+
+	return manager.ReloadProviders(providerConfigs)
 }
 
 // reportStatistics periodically reports server statistics

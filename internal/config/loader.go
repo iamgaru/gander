@@ -16,9 +16,24 @@ func NewLoader() *Loader {
 
 // Load loads configuration from a file
 func (l *Loader) Load(filename string) (*Config, error) {
+	// Prevent using example config directly
+	if filename == "config_example.json" {
+		return nil, fmt.Errorf("cannot use config_example.json directly - copy it to config.json and customize it first")
+	}
+
 	data, err := os.ReadFile(filename)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read config file: %w", err)
+	}
+
+	// Check if this looks like the example config (has warning fields)
+	var rawConfig map[string]interface{}
+	if err := json.Unmarshal(data, &rawConfig); err != nil {
+		return nil, fmt.Errorf("failed to parse config JSON: %w", err)
+	}
+
+	if _, hasWarning := rawConfig["_WARNING"]; hasWarning {
+		return nil, fmt.Errorf("this appears to be the example config file with warning fields - please create a clean config.json without the _WARNING, _NOTICE, and _SECURITY fields")
 	}
 
 	var config Config

@@ -120,6 +120,11 @@ func (r *Relayer) SetCaptureHandler(handler CaptureHandler) {
 	r.captureHandler = handler
 }
 
+// SetDebug sets the debug flag
+func (r *Relayer) SetDebug(enable bool) {
+	r.enableDebug = enable
+}
+
 // HandleFastRelay performs fast passthrough relay
 func (r *Relayer) HandleFastRelay(clientConn net.Conn, serverAddr string, info *ConnectionInfo) error {
 	r.stats.IncrementTotal()

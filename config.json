@@ -1,6 +1,6 @@
 {
   "proxy": {
-    "listen_addr": ":8081",
+    "listen_addr": ":8848",
     "transparent": false,
     "explicit_port": 3129,
     "buffer_size": 32768,
@@ -23,16 +23,19 @@
       "httpbin.org",
       "jsonplaceholder.typicode.com",
       "httpbin.org",
-      "postman-echo.com"
+      "postman-echo.com",
+      "*.google.com",
+      "*.youtube.com",
+      "*.github.com",
+      "*.gamuapps.com",
+      "*.theage.com.au"
     ],
     "inspect_source_ips": [
       "192.168.1.100",
-      "10.0.0.0/24",
-      "127.0.0.1"
+      "10.0.0.0/24"
     ],
     "bypass_domains": [
-      "update.microsoft.com",
-      "*.google.com"
+      "update.microsoft.com"
     ],
     "bypass_source_ips": [
       "192.168.1.1",
@@ -47,6 +50,13 @@
     "cert_dir": "certs",
     "auto_generate": true,
     "valid_days": 365,
-    "upstream_cert_sniff": true
+    "upstream_cert_sniff": true,
+    "custom_details": {
+      "common_name": "Gamu Safe Browsing",
+      "organization": ["Gamu Security"],
+      "country": ["US"],
+      "province": ["California"],
+      "locality": ["San Francisco"]
+    }
   }
 }

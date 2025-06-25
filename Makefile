@@ -89,18 +89,47 @@ vet:
 	@echo "Vetting code..."
 	go vet ./...
 
-# Setup initial configuration
+# Setup initial directories (does NOT create config file)
 .PHONY: setup
 setup:
-	@echo "Setting up initial configuration..."
-	@if [ ! -f $(CONFIG_FILE) ]; then \
-		cp config_example.json $(CONFIG_FILE); \
-		echo "Created $(CONFIG_FILE) from example"; \
-	fi
+	@echo "Setting up initial directories..."
 	@mkdir -p $(CERT_DIR)
 	@mkdir -p $(CAPTURE_DIR)
 	@mkdir -p $(LOGS_DIR)
-	@echo "Setup complete!"
+	@echo "Directories created!"
+	@echo ""
+	@echo "⚠️  IMPORTANT: You must create your own config.json file"
+	@echo "📋 Steps:"
+	@echo "   1. Copy config_example.json to config.json"
+	@echo "   2. Edit config.json with your specific settings"
+	@echo "   3. Review all settings, especially listen_addr and domains"
+	@echo ""
+	@if [ ! -f $(CONFIG_FILE) ]; then \
+		echo "❌ $(CONFIG_FILE) not found - please create it manually"; \
+		echo "💡 Run: cp config_example.json $(CONFIG_FILE)"; \
+		echo "💡 Then: edit $(CONFIG_FILE)"; \
+	else \
+		echo "✅ $(CONFIG_FILE) already exists"; \
+	fi
+
+# Create config from example (explicit action)
+.PHONY: init-config
+init-config:
+	@echo "Creating initial configuration from example..."
+	@if [ -f $(CONFIG_FILE) ]; then \
+		echo "❌ $(CONFIG_FILE) already exists!"; \
+		echo "💡 To overwrite, run: rm $(CONFIG_FILE) && make init-config"; \
+		exit 1; \
+	fi
+	@cp config_example.json $(CONFIG_FILE)
+	@echo "✅ Created $(CONFIG_FILE) from example"
+	@echo ""
+	@echo "⚠️  IMPORTANT: Please review and edit $(CONFIG_FILE) before use"
+	@echo "📋 Key settings to check:"
+	@echo "   - listen_addr (currently set to :1234 in example)"
+	@echo "   - inspect_domains (configure for your needs)"
+	@echo "   - TLS settings and certificate paths"
+	@echo "   - Logging and capture directories"
 
 # Generate CA certificate for testing
 .PHONY: gen-ca
@@ -110,7 +139,7 @@ gen-ca:
 	@if [ ! -f $(CERT_DIR)/ca.key ]; then \
 		openssl genrsa -out $(CERT_DIR)/ca.key 4096; \
 		openssl req -new -x509 -days 365 -key $(CERT_DIR)/ca.key -out $(CERT_DIR)/ca.crt \
-			-subj "/C=US/ST=CA/L=San Francisco/O=Gander Proxy/CN=Gander MITM CA"; \
+			-subj "/C=US/ST=California/L=San Francisco/O=Gamu Security Services/CN=Gamu Pty Ltd"; \
 		echo "CA certificate generated in $(CERT_DIR)/"; \
 	else \
 		echo "CA certificate already exists"; \
@@ -127,7 +156,7 @@ trust-ca-macos: gen-ca
 	@echo "Adding CA certificate to macOS System keychain..."
 	sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain $(CERT_DIR)/ca.crt
 	@echo "✅ CA certificate trusted in macOS System keychain"
-	@echo "📋 You can verify with: security find-certificate -c 'Gander MITM CA' /Library/Keychains/System.keychain"
+	@echo "📋 You can verify with: security find-certificate -c 'Gamu Pty Ltd' /Library/Keychains/System.keychain"
 
 # Trust CA certificate in system keychain (Linux)
 .PHONY: trust-ca-linux
@@ -167,7 +196,7 @@ trust-ca-windows: gen-ca
 	 echo "💡 Trying Current User store instead..."; \
 	 powershell.exe -Command "Import-Certificate -FilePath '$(CERT_DIR)/ca.crt' -CertStoreLocation Cert:\CurrentUser\Root")
 	@echo "✅ CA certificate trusted in Windows certificate store"
-	@echo "📋 You can verify with: certutil -store ROOT | findstr \"Gander\""
+	@echo "📋 You can verify with: certutil -store ROOT | findstr \"Gamu\""
 
 # Trust CA certificate (auto-detect OS)
 .PHONY: trust-ca
@@ -193,7 +222,7 @@ trust-ca:
 .PHONY: untrust-ca-macos
 untrust-ca-macos:
 	@echo "Removing CA certificate from macOS keychain..."
-	@sudo security delete-certificate -c "Gander MITM CA" /Library/Keychains/System.keychain || echo "Certificate not found in keychain"
+	@sudo security delete-certificate -c "Gamu Pty Ltd" /Library/Keychains/System.keychain || echo "Certificate not found in keychain"
 	@echo "✅ CA certificate removed from macOS System keychain"
 
 # Remove trusted CA certificate from system (Linux)
@@ -217,9 +246,9 @@ untrust-ca-linux:
 untrust-ca-windows:
 	@echo "Removing CA certificate from Windows certificate store..."
 	@echo "💻 Windows detected - Using certutil to remove certificate..."
-	@certutil -delstore ROOT "Gander MITM CA" || \
-	 powershell.exe -Command "Get-ChildItem -Path Cert:\LocalMachine\Root | Where-Object {\$$_.Subject -like '*Gander*'} | Remove-Item" || \
-	 powershell.exe -Command "Get-ChildItem -Path Cert:\CurrentUser\Root | Where-Object {\$$_.Subject -like '*Gander*'} | Remove-Item" || \
+	@certutil -delstore ROOT "Gamu Pty Ltd" || \
+	 powershell.exe -Command "Get-ChildItem -Path Cert:\LocalMachine\Root | Where-Object {\$$_.Subject -like '*Gamu*'} | Remove-Item" || \
+	 powershell.exe -Command "Get-ChildItem -Path Cert:\CurrentUser\Root | Where-Object {\$$_.Subject -like '*Gamu*'} | Remove-Item" || \
 	 echo "❌ CA certificate not found in Windows certificate store"
 	@echo "✅ CA certificate removed from Windows certificate store"
 
@@ -265,9 +294,9 @@ verify-ca:
 	@echo "Verifying CA certificate trust status..."
 	@if [ "$$(uname)" = "Darwin" ]; then \
 		echo "🍎 Checking macOS keychain..."; \
-		if security find-certificate -c "Gander MITM CA" /Library/Keychains/System.keychain >/dev/null 2>&1; then \
+		if security find-certificate -c "Gamu Pty Ltd" /Library/Keychains/System.keychain >/dev/null 2>&1; then \
 			echo "✅ CA certificate is trusted in macOS System keychain"; \
-			security find-certificate -p -c "Gander MITM CA" /Library/Keychains/System.keychain | openssl x509 -noout -subject -dates; \
+			security find-certificate -p -c "Gamu Pty Ltd" /Library/Keychains/System.keychain | openssl x509 -noout -subject -dates; \
 		else \
 			echo "❌ CA certificate not found in macOS System keychain"; \
 			echo "💡 Run: make trust-ca"; \
@@ -282,9 +311,9 @@ verify-ca:
 		fi; \
 	elif [ "$$(uname -s | cut -c1-10)" = "MINGW32_NT" ] || [ "$$(uname -s | cut -c1-10)" = "MINGW64_NT" ] || [ "$$(uname -s | cut -c1-6)" = "CYGWIN" ] || [ -n "$$WINDIR" ]; then \
 		echo "💻 Checking Windows certificate store..."; \
-		if certutil -store ROOT | findstr "Gander" >/dev/null 2>&1; then \
+		if certutil -store ROOT | findstr "Gamu" >/dev/null 2>&1; then \
 			echo "✅ CA certificate found in Windows certificate store"; \
-			certutil -store ROOT | findstr -A 5 -B 5 "Gander"; \
+			certutil -store ROOT | findstr -A 5 -B 5 "Gamu"; \
 		else \
 			echo "❌ CA certificate not found in Windows certificate store"; \
 			echo "💡 Run: make trust-ca"; \

@@ -1,4 +1,8 @@
 {
+  "_WARNING": "THIS IS AN EXAMPLE CONFIG FILE - DO NOT USE IN PRODUCTION",
+  "_NOTICE": "Copy this file to config.json and customize for your environment",
+  "_SECURITY": "Review all settings, especially listen_addr and domain lists",
+  
   "proxy": {
     "listen_addr": ":1234",
     "transparent": false,

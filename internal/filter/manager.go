@@ -266,6 +266,29 @@ func (m *Manager) Shutdown() error {
 	return nil
 }
 
+// ReloadProviders reloads filter providers with new configuration
+func (m *Manager) ReloadProviders(providerConfigs map[string]interface{}) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	// Reload existing providers
+	for name, provider := range m.providers {
+		if config, exists := providerConfigs[name]; exists {
+			if err := provider.Initialize(config.(map[string]interface{})); err != nil {
+				return fmt.Errorf("failed to reload provider %s: %w", name, err)
+			}
+			if m.enableDebug {
+				log.Printf("Reloaded filter provider '%s'", name)
+			}
+		}
+	}
+
+	// Rebuild filter lists after reload
+	m.rebuildFilterLists()
+
+	return nil
+}
+
 // sortFilters sorts filters by priority (higher priority first)
 func (m *Manager) sortFilters() {
 	sort.Slice(m.packetFilters, func(i, j int) bool {

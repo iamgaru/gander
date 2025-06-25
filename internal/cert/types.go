@@ -55,6 +55,7 @@ type CertConfig struct {
 	Country           string `json:"country"`
 	Province          string `json:"province"`
 	Locality          string `json:"locality"`
+	CustomCommonName  string `json:"custom_common_name"`
 	CacheMaxSize      int    `json:"cache_max_size"`
 	CacheExpiryHours  int    `json:"cache_expiry_hours"`
 }
