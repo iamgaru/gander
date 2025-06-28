@@ -22,18 +22,7 @@ jobs:
       uses: actions/setup-go@v5
       with:
         go-version: ${{ matrix.go-version }}
-        cache: false  # Disable built-in cache to avoid conflicts
-
-    - name: Cache Go modules
-      uses: actions/cache@v4
-      with:
-        path: |
-          ~/.cache/go-build
-          ~/go/pkg/mod
-        key: ${{ runner.os }}-go-${{ matrix.go-version }}-${{ hashFiles('**/go.sum', '**/go.mod') }}-${{ github.run_id }}
-        restore-keys: |
-          ${{ runner.os }}-go-${{ matrix.go-version }}-${{ hashFiles('**/go.sum', '**/go.mod') }}-
-          ${{ runner.os }}-go-${{ matrix.go-version }}-
+        cache: true  # Use built-in Go caching
 
     - name: Install dependencies
       run: make deps
@@ -62,18 +51,7 @@ jobs:
       uses: actions/setup-go@v5
       with:
         go-version: '1.22'
-        cache: false  # Disable built-in cache to avoid conflicts
-
-    - name: Cache Go modules
-      uses: actions/cache@v4
-      with:
-        path: |
-          ~/.cache/go-build
-          ~/go/pkg/mod
-        key: ${{ runner.os }}-lint-go-1.22-${{ hashFiles('**/go.sum', '**/go.mod') }}-${{ github.run_id }}
-        restore-keys: |
-          ${{ runner.os }}-lint-go-1.22-${{ hashFiles('**/go.sum', '**/go.mod') }}-
-          ${{ runner.os }}-lint-go-1.22-
+        cache: true  # Use built-in Go caching
 
     - name: Install dependencies
       run: make deps
@@ -81,9 +59,8 @@ jobs:
     - name: Run golangci-lint
       uses: golangci/golangci-lint-action@v6
       with:
-        version: v1.64.1
+        version: v1.64.8
         args: --timeout=10m --verbose
-        skip-cache: true
 
     - name: Run go vet
       run: make vet
@@ -109,18 +86,7 @@ jobs:
       uses: actions/setup-go@v5
       with:
         go-version: '1.22'
-        cache: false
-
-    - name: Cache Go modules
-      uses: actions/cache@v4
-      with:
-        path: |
-          ~/.cache/go-build
-          ~/go/pkg/mod
-        key: ${{ runner.os }}-build-go-1.22-${{ hashFiles('**/go.sum', '**/go.mod') }}-${{ github.run_id }}
-        restore-keys: |
-          ${{ runner.os }}-build-go-1.22-${{ hashFiles('**/go.sum', '**/go.mod') }}-
-          ${{ runner.os }}-build-go-1.22-
+        cache: true
 
     - name: Install dependencies
       run: make deps
@@ -148,18 +114,7 @@ jobs:
       uses: actions/setup-go@v5
       with:
         go-version: '1.22'
-        cache: false
-
-    - name: Cache Go modules
-      uses: actions/cache@v4
-      with:
-        path: |
-          ~/.cache/go-build
-          ~/go/pkg/mod
-        key: ${{ runner.os }}-cross-go-1.22-${{ hashFiles('**/go.sum', '**/go.mod') }}-${{ github.run_id }}
-        restore-keys: |
-          ${{ runner.os }}-cross-go-1.22-${{ hashFiles('**/go.sum', '**/go.mod') }}-
-          ${{ runner.os }}-cross-go-1.22-
+        cache: true
 
     - name: Install dependencies
       run: make deps
@@ -187,18 +142,7 @@ jobs:
       uses: actions/setup-go@v5
       with:
         go-version: '1.22'
-        cache: false
-
-    - name: Cache Go modules
-      uses: actions/cache@v4
-      with:
-        path: |
-          ~/.cache/go-build
-          ~/go/pkg/mod
-        key: ${{ runner.os }}-bench-go-1.22-${{ hashFiles('**/go.sum', '**/go.mod') }}-${{ github.run_id }}
-        restore-keys: |
-          ${{ runner.os }}-bench-go-1.22-${{ hashFiles('**/go.sum', '**/go.mod') }}-
-          ${{ runner.os }}-bench-go-1.22-
+        cache: true
 
     - name: Install dependencies
       run: make deps
@@ -225,18 +169,7 @@ jobs:
       uses: actions/setup-go@v5
       with:
         go-version: '1.22'
-        cache: false
-
-    - name: Cache Go modules
-      uses: actions/cache@v4
-      with:
-        path: |
-          ~/.cache/go-build
-          ~/go/pkg/mod
-        key: ${{ runner.os }}-security-go-1.22-${{ hashFiles('**/go.sum', '**/go.mod') }}-${{ github.run_id }}
-        restore-keys: |
-          ${{ runner.os }}-security-go-1.22-${{ hashFiles('**/go.sum', '**/go.mod') }}-
-          ${{ runner.os }}-security-go-1.22-
+        cache: true
 
     - name: Install dependencies
       run: make deps
