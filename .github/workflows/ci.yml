@@ -67,23 +67,41 @@ jobs:
 
     - name: Check formatting
       run: |
+        echo "=== Debugging formatting check ==="
+        echo "Git status before formatting:"
+        git status --porcelain
+        echo ""
         echo "Installing goimports..."
         go install golang.org/x/tools/cmd/goimports@latest
-        echo "Running formatting..."
-        goimports -w .
+        echo ""
+        echo "Current Go version:"
+        go version
+        echo ""
+        echo "Tool versions:"
+        goimports -help | head -1 || echo "goimports version info not available"
+        echo ""
+        echo "Running goimports on Go files only..."
+        find . -name "*.go" -not -path "./vendor/*" -not -path "./.git/*" | xargs goimports -w
+        echo ""
+        echo "Running go fmt on Go packages..."
         go fmt ./...
+        echo ""
+        echo "Git status after formatting:"
+        git status --porcelain
+        echo ""
         echo "Checking for differences..."
         if ! git diff --quiet; then
-          echo "❌ Code is not properly formatted"
-          echo "📋 The following files need formatting:"
+          echo "❌ Code formatting changes detected"
+          echo "📋 Files with changes:"
           git diff --name-only
-          echo "📋 Differences found:"
-          git diff
           echo ""
-          echo "💡 To fix locally, run: make fmt"
+          echo "📋 Detailed differences:"
+          git diff --unified=1
+          echo ""
+          echo "💡 To fix locally, run: make fmt && git add . && git commit"
           exit 1
         fi
-        echo "✅ Code formatting is correct"
+        echo "✅ No formatting changes needed"
 
   build:
     name: Build
