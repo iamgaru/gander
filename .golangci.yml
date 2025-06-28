@@ -1,0 +1,38 @@
+run:
+  timeout: 5m
+  go: '1.21'
+
+linters:
+  enable:
+    - errcheck
+    - gofmt
+    - goimports
+    - govet
+    - ineffassign
+    - misspell
+    - staticcheck
+    - unused
+    - gosimple
+    - goconst
+    - revive
+
+linters-settings:
+  staticcheck:
+    checks: ["all", "-SA6002"]  # Disable SA6002 (buffer pool false positive)
+  revive:
+    rules:
+      - name: exported
+        disabled: true  # Disable stuttering type name warnings
+
+issues:
+  exclude-rules:
+    # Exclude SA6002 for buffer pool patterns
+    - path: "internal/relay/relay.go"
+      linters: [staticcheck]
+      text: "SA6002.*pool.Put"
+    - path: "internal/proxy/types.go"
+      linters: [staticcheck]
+      text: "SA6002.*pool.Put"
+    # Exclude stuttering type name warnings
+    - linters: [revive]
+      text: "exported.*stutters" 
