@@ -131,23 +131,224 @@ func TestConfigValidate(t *testing.T) {
 					CAKeyFile:    "ca-key.pem",
 					ValidDays:    365,
 					AutoGenerate: true,
+					CertDir:      "certs",
 				},
 			},
 			expectError: false,
 		},
 		{
-			name: "Minimal valid config",
+			name: "Valid minimal config with defaults",
+			config: func() *Config {
+				c := &Config{
+					Proxy: ProxyConfig{
+						ListenAddr: ":8080",
+					},
+				}
+				c.SetDefaults()
+				return c
+			}(),
+			expectError: false,
+		},
+		{
+			name:        "Empty config - missing required fields",
+			config:      &Config{},
+			expectError: true,
+		},
+		{
+			name: "Invalid proxy config - empty listen address",
 			config: &Config{
 				Proxy: ProxyConfig{
-					ListenAddr: ":8080",
+					ListenAddr:   "",
+					BufferSize:   32768,
+					ReadTimeout:  30,
+					WriteTimeout: 30,
 				},
 			},
+			expectError: true,
+		},
+		{
+			name: "Invalid proxy config - missing port",
+			config: &Config{
+				Proxy: ProxyConfig{
+					ListenAddr:   "127.0.0.1",
+					BufferSize:   32768,
+					ReadTimeout:  30,
+					WriteTimeout: 30,
+				},
+			},
+			expectError: true,
+		},
+		{
+			name: "Invalid proxy config - negative buffer size",
+			config: &Config{
+				Proxy: ProxyConfig{
+					ListenAddr:   ":8080",
+					BufferSize:   -1,
+					ReadTimeout:  30,
+					WriteTimeout: 30,
+				},
+			},
+			expectError: true,
+		},
+		{
+			name: "Invalid proxy config - invalid explicit port",
+			config: &Config{
+				Proxy: ProxyConfig{
+					ListenAddr:   ":8080",
+					ExplicitPort: 70000,
+					BufferSize:   32768,
+					ReadTimeout:  30,
+					WriteTimeout: 30,
+				},
+			},
+			expectError: true,
+		},
+		{
+			name: "Invalid logging config - negative max file size",
+			config: &Config{
+				Proxy: ProxyConfig{
+					ListenAddr:   ":8080",
+					BufferSize:   32768,
+					ReadTimeout:  30,
+					WriteTimeout: 30,
+				},
+				Logging: LoggingConfig{
+					MaxFileSize: -10,
+				},
+			},
+			expectError: true,
+		},
+		{
+			name: "Valid logging config with defaults",
+			config: func() *Config {
+				c := &Config{
+					Proxy: ProxyConfig{
+						ListenAddr: ":8080",
+					},
+				}
+				c.SetDefaults()
+				return c
+			}(),
 			expectError: false,
 		},
 		{
-			name:        "Empty config",
-			config:      &Config{},
-			expectError: false, // Currently no validation rules
+			name: "Invalid TLS config - zero valid days",
+			config: &Config{
+				Proxy: ProxyConfig{
+					ListenAddr:   ":8080",
+					BufferSize:   32768,
+					ReadTimeout:  30,
+					WriteTimeout: 30,
+				},
+				TLS: TLSConfig{
+					ValidDays: 0,
+				},
+			},
+			expectError: true,
+		},
+		{
+			name: "Invalid TLS config - unknown cert profile",
+			config: &Config{
+				Proxy: ProxyConfig{
+					ListenAddr:   ":8080",
+					BufferSize:   32768,
+					ReadTimeout:  30,
+					WriteTimeout: 30,
+				},
+				TLS: TLSConfig{
+					ValidDays:   365,
+					CertProfile: "unknown",
+					CertDir:     "certs",
+				},
+			},
+			expectError: true,
+		},
+		{
+			name: "Invalid TLS config - custom profile without details",
+			config: &Config{
+				Proxy: ProxyConfig{
+					ListenAddr:   ":8080",
+					BufferSize:   32768,
+					ReadTimeout:  30,
+					WriteTimeout: 30,
+				},
+				TLS: TLSConfig{
+					ValidDays:   365,
+					CertProfile: "custom",
+					CertDir:     "certs",
+				},
+			},
+			expectError: true,
+		},
+		{
+			name: "Valid TLS config - custom profile with details",
+			config: func() *Config {
+				c := &Config{
+					Proxy: ProxyConfig{
+						ListenAddr: ":8080",
+					},
+					TLS: TLSConfig{
+						CertProfile: "custom",
+						CustomDetails: &CertCustomDetails{
+							CommonName: "test.example.com",
+						},
+					},
+				}
+				c.SetDefaults()
+				return c
+			}(),
+			expectError: false,
+		},
+		{
+			name: "Invalid filters config - unknown provider",
+			config: &Config{
+				Proxy: ProxyConfig{
+					ListenAddr:   ":8080",
+					BufferSize:   32768,
+					ReadTimeout:  30,
+					WriteTimeout: 30,
+				},
+				Filters: FiltersConfig{
+					EnabledProviders: []string{"unknown_provider"},
+				},
+			},
+			expectError: true,
+		},
+		{
+			name: "Invalid filters config - custom provider without config",
+			config: &Config{
+				Proxy: ProxyConfig{
+					ListenAddr:   ":8080",
+					BufferSize:   32768,
+					ReadTimeout:  30,
+					WriteTimeout: 30,
+				},
+				Filters: FiltersConfig{
+					EnabledProviders: []string{"custom"},
+				},
+			},
+			expectError: true,
+		},
+		{
+			name: "Valid filters config - custom provider with config",
+			config: func() *Config {
+				c := &Config{
+					Proxy: ProxyConfig{
+						ListenAddr: ":8080",
+					},
+					Filters: FiltersConfig{
+						EnabledProviders: []string{"custom"},
+					},
+					Providers: map[string]interface{}{
+						"custom": map[string]interface{}{
+							"enabled": true,
+						},
+					},
+				}
+				c.SetDefaults()
+				return c
+			}(),
+			expectError: false,
 		},
 	}
 

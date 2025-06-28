@@ -19,9 +19,10 @@ jobs:
       uses: actions/checkout@v4
 
     - name: Set up Go
-      uses: actions/setup-go@v4
+      uses: actions/setup-go@v5
       with:
         go-version: ${{ matrix.go-version }}
+        cache: false  # Disable built-in cache to avoid conflicts
 
     - name: Cache Go modules
       uses: actions/cache@v4
@@ -29,8 +30,9 @@ jobs:
         path: |
           ~/.cache/go-build
           ~/go/pkg/mod
-        key: ${{ runner.os }}-go-${{ matrix.go-version }}-${{ hashFiles('**/go.sum') }}
+        key: ${{ runner.os }}-go-${{ matrix.go-version }}-${{ hashFiles('**/go.sum', '**/go.mod') }}-${{ github.run_id }}
         restore-keys: |
+          ${{ runner.os }}-go-${{ matrix.go-version }}-${{ hashFiles('**/go.sum', '**/go.mod') }}-
           ${{ runner.os }}-go-${{ matrix.go-version }}-
 
     - name: Install dependencies
@@ -43,9 +45,9 @@ jobs:
       run: make test-coverage
 
     - name: Upload coverage to Codecov
-      uses: codecov/codecov-action@v3
+      uses: codecov/codecov-action@v4
       with:
-        file: ./coverage.out
+        file: ./build/coverage.out
         fail_ci_if_error: false
 
   lint:
@@ -57,9 +59,10 @@ jobs:
       uses: actions/checkout@v4
 
     - name: Set up Go
-      uses: actions/setup-go@v4
+      uses: actions/setup-go@v5
       with:
-        go-version: 1.22
+        go-version: '1.22'
+        cache: false  # Disable built-in cache to avoid conflicts
 
     - name: Cache Go modules
       uses: actions/cache@v4
@@ -67,18 +70,22 @@ jobs:
         path: |
           ~/.cache/go-build
           ~/go/pkg/mod
-        key: ${{ runner.os }}-go-1.22-${{ hashFiles('**/go.sum') }}
+        key: ${{ runner.os }}-lint-go-1.22-${{ hashFiles('**/go.sum', '**/go.mod') }}-${{ github.run_id }}
         restore-keys: |
-          ${{ runner.os }}-go-1.22-
+          ${{ runner.os }}-lint-go-1.22-${{ hashFiles('**/go.sum', '**/go.mod') }}-
+          ${{ runner.os }}-lint-go-1.22-
 
     - name: Install dependencies
       run: make deps
 
     - name: Run golangci-lint
-      uses: golangci/golangci-lint-action@v3
+      uses: golangci/golangci-lint-action@v6
       with:
-        version: latest
-        args: --timeout=5m
+        version: v1.59.1
+        args: --timeout=10m --verbose
+        skip-cache: true
+        skip-pkg-cache: true
+        skip-build-cache: true
 
     - name: Run go vet
       run: make vet
@@ -86,7 +93,11 @@ jobs:
     - name: Check formatting
       run: |
         make fmt
-        git diff --exit-code
+        if ! git diff --quiet; then
+          echo "Code is not properly formatted"
+          git diff
+          exit 1
+        fi
 
   build:
     name: Build
@@ -97,9 +108,10 @@ jobs:
       uses: actions/checkout@v4
 
     - name: Set up Go
-      uses: actions/setup-go@v4
+      uses: actions/setup-go@v5
       with:
-        go-version: 1.22
+        go-version: '1.22'
+        cache: false
 
     - name: Cache Go modules
       uses: actions/cache@v4
@@ -107,9 +119,10 @@ jobs:
         path: |
           ~/.cache/go-build
           ~/go/pkg/mod
-        key: ${{ runner.os }}-go-1.22-${{ hashFiles('**/go.sum') }}
+        key: ${{ runner.os }}-build-go-1.22-${{ hashFiles('**/go.sum', '**/go.mod') }}-${{ github.run_id }}
         restore-keys: |
-          ${{ runner.os }}-go-1.22-
+          ${{ runner.os }}-build-go-1.22-${{ hashFiles('**/go.sum', '**/go.mod') }}-
+          ${{ runner.os }}-build-go-1.22-
 
     - name: Install dependencies
       run: make deps
@@ -134,9 +147,10 @@ jobs:
       uses: actions/checkout@v4
 
     - name: Set up Go
-      uses: actions/setup-go@v4
+      uses: actions/setup-go@v5
       with:
-        go-version: 1.22
+        go-version: '1.22'
+        cache: false
 
     - name: Cache Go modules
       uses: actions/cache@v4
@@ -144,9 +158,10 @@ jobs:
         path: |
           ~/.cache/go-build
           ~/go/pkg/mod
-        key: ${{ runner.os }}-go-1.22-${{ hashFiles('**/go.sum') }}
+        key: ${{ runner.os }}-cross-go-1.22-${{ hashFiles('**/go.sum', '**/go.mod') }}-${{ github.run_id }}
         restore-keys: |
-          ${{ runner.os }}-go-1.22-
+          ${{ runner.os }}-cross-go-1.22-${{ hashFiles('**/go.sum', '**/go.mod') }}-
+          ${{ runner.os }}-cross-go-1.22-
 
     - name: Install dependencies
       run: make deps
@@ -171,9 +186,10 @@ jobs:
       uses: actions/checkout@v4
 
     - name: Set up Go
-      uses: actions/setup-go@v4
+      uses: actions/setup-go@v5
       with:
-        go-version: 1.22
+        go-version: '1.22'
+        cache: false
 
     - name: Cache Go modules
       uses: actions/cache@v4
@@ -181,9 +197,10 @@ jobs:
         path: |
           ~/.cache/go-build
           ~/go/pkg/mod
-        key: ${{ runner.os }}-go-1.22-${{ hashFiles('**/go.sum') }}
+        key: ${{ runner.os }}-bench-go-1.22-${{ hashFiles('**/go.sum', '**/go.mod') }}-${{ github.run_id }}
         restore-keys: |
-          ${{ runner.os }}-go-1.22-
+          ${{ runner.os }}-bench-go-1.22-${{ hashFiles('**/go.sum', '**/go.mod') }}-
+          ${{ runner.os }}-bench-go-1.22-
 
     - name: Install dependencies
       run: make deps
@@ -207,9 +224,10 @@ jobs:
       uses: actions/checkout@v4
 
     - name: Set up Go
-      uses: actions/setup-go@v4
+      uses: actions/setup-go@v5
       with:
-        go-version: 1.22
+        go-version: '1.22'
+        cache: false
 
     - name: Cache Go modules
       uses: actions/cache@v4
@@ -217,9 +235,10 @@ jobs:
         path: |
           ~/.cache/go-build
           ~/go/pkg/mod
-        key: ${{ runner.os }}-go-1.22-${{ hashFiles('**/go.sum') }}
+        key: ${{ runner.os }}-security-go-1.22-${{ hashFiles('**/go.sum', '**/go.mod') }}-${{ github.run_id }}
         restore-keys: |
-          ${{ runner.os }}-go-1.22-
+          ${{ runner.os }}-security-go-1.22-${{ hashFiles('**/go.sum', '**/go.mod') }}-
+          ${{ runner.os }}-security-go-1.22-
 
     - name: Install dependencies
       run: make deps

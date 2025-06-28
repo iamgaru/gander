@@ -1,5 +1,10 @@
 package config
 
+import (
+	"fmt"
+	"strings"
+)
+
 // ProxyConfig contains proxy server settings
 type ProxyConfig struct {
 	ListenAddr   string `json:"listen_addr"`
@@ -110,6 +115,205 @@ func (c *Config) SetDefaults() {
 
 // Validate validates the configuration
 func (c *Config) Validate() error {
-	// Add validation logic here
+	// Validate proxy configuration
+	if err := c.validateProxy(); err != nil {
+		return fmt.Errorf("proxy config validation failed: %w", err)
+	}
+
+	// Validate logging configuration
+	if err := c.validateLogging(); err != nil {
+		return fmt.Errorf("logging config validation failed: %w", err)
+	}
+
+	// Validate TLS configuration
+	if err := c.validateTLS(); err != nil {
+		return fmt.Errorf("TLS config validation failed: %w", err)
+	}
+
+	// Validate filters configuration
+	if err := c.validateFilters(); err != nil {
+		return fmt.Errorf("filters config validation failed: %w", err)
+	}
+
+	return nil
+}
+
+// validateProxy validates proxy configuration
+func (c *Config) validateProxy() error {
+	// ListenAddr is required
+	if c.Proxy.ListenAddr == "" {
+		return fmt.Errorf("proxy listen_addr is required")
+	}
+
+	// Validate listen address format
+	if err := validateNetworkAddress(c.Proxy.ListenAddr); err != nil {
+		return fmt.Errorf("invalid listen_addr: %w", err)
+	}
+
+	// Validate explicit port if set
+	if c.Proxy.ExplicitPort != 0 {
+		if c.Proxy.ExplicitPort < 1 || c.Proxy.ExplicitPort > 65535 {
+			return fmt.Errorf("explicit_port must be between 1 and 65535, got %d", c.Proxy.ExplicitPort)
+		}
+	}
+
+	// Validate buffer size
+	if c.Proxy.BufferSize <= 0 {
+		return fmt.Errorf("buffer_size must be positive, got %d", c.Proxy.BufferSize)
+	}
+
+	// Validate timeouts
+	if c.Proxy.ReadTimeout <= 0 {
+		return fmt.Errorf("read_timeout_seconds must be positive, got %d", c.Proxy.ReadTimeout)
+	}
+	if c.Proxy.WriteTimeout <= 0 {
+		return fmt.Errorf("write_timeout_seconds must be positive, got %d", c.Proxy.WriteTimeout)
+	}
+
+	return nil
+}
+
+// validateLogging validates logging configuration
+func (c *Config) validateLogging() error {
+	// MaxFileSize must be positive
+	if c.Logging.MaxFileSize <= 0 {
+		return fmt.Errorf("max_file_size_mb must be positive, got %d", c.Logging.MaxFileSize)
+	}
+
+	// Validate log file path if specified
+	if c.Logging.LogFile != "" {
+		if err := validateFilePath(c.Logging.LogFile); err != nil {
+			return fmt.Errorf("invalid log_file path: %w", err)
+		}
+	}
+
+	// Validate capture directory if specified
+	if c.Logging.CaptureDir != "" {
+		if err := validateDirectoryPath(c.Logging.CaptureDir); err != nil {
+			return fmt.Errorf("invalid capture_dir path: %w", err)
+		}
+	}
+
+	return nil
+}
+
+// validateTLS validates TLS configuration
+func (c *Config) validateTLS() error {
+	// ValidDays must be positive
+	if c.TLS.ValidDays <= 0 {
+		return fmt.Errorf("valid_days must be positive, got %d", c.TLS.ValidDays)
+	}
+
+	// Validate cert profile
+	if c.TLS.CertProfile != "" && c.TLS.CertProfile != "minimal" && c.TLS.CertProfile != "custom" {
+		return fmt.Errorf("cert_profile must be 'minimal' or 'custom', got '%s'", c.TLS.CertProfile)
+	}
+
+	// If cert profile is custom, custom details should be provided
+	if c.TLS.CertProfile == "custom" && c.TLS.CustomDetails == nil {
+		return fmt.Errorf("custom_details required when cert_profile is 'custom'")
+	}
+
+	// Validate certificate file paths if specified
+	if c.TLS.CertFile != "" {
+		if err := validateFilePath(c.TLS.CertFile); err != nil {
+			return fmt.Errorf("invalid cert_file path: %w", err)
+		}
+	}
+	if c.TLS.KeyFile != "" {
+		if err := validateFilePath(c.TLS.KeyFile); err != nil {
+			return fmt.Errorf("invalid key_file path: %w", err)
+		}
+	}
+	if c.TLS.CAFile != "" {
+		if err := validateFilePath(c.TLS.CAFile); err != nil {
+			return fmt.Errorf("invalid ca_file path: %w", err)
+		}
+	}
+	if c.TLS.CAKeyFile != "" {
+		if err := validateFilePath(c.TLS.CAKeyFile); err != nil {
+			return fmt.Errorf("invalid ca_key_file path: %w", err)
+		}
+	}
+
+	// Validate cert directory
+	if c.TLS.CertDir != "" {
+		if err := validateDirectoryPath(c.TLS.CertDir); err != nil {
+			return fmt.Errorf("invalid cert_dir path: %w", err)
+		}
+	}
+
+	return nil
+}
+
+// validateFilters validates filters configuration
+func (c *Config) validateFilters() error {
+	// Validate enabled providers
+	validProviders := map[string]bool{
+		"domain": true,
+		"ip":     true,
+		"custom": true,
+	}
+
+	for _, provider := range c.Filters.EnabledProviders {
+		if !validProviders[provider] {
+			return fmt.Errorf("unknown filter provider: %s", provider)
+		}
+	}
+
+	// Validate that provider configs exist for enabled providers
+	for _, provider := range c.Filters.EnabledProviders {
+		if provider == "custom" {
+			// Custom providers should have config in the main Providers section
+			if c.Providers == nil || c.Providers[provider] == nil {
+				return fmt.Errorf("custom provider '%s' enabled but no configuration found in providers section", provider)
+			}
+		}
+	}
+
+	return nil
+}
+
+// Helper validation functions
+
+// validateNetworkAddress validates network address format (host:port)
+func validateNetworkAddress(addr string) error {
+	if addr == "" {
+		return fmt.Errorf("address cannot be empty")
+	}
+
+	// Simple validation - should contain a colon for port
+	if !strings.Contains(addr, ":") {
+		return fmt.Errorf("address must include port (e.g., ':8080' or '127.0.0.1:8080')")
+	}
+
+	return nil
+}
+
+// validateFilePath validates file path format
+func validateFilePath(path string) error {
+	if path == "" {
+		return fmt.Errorf("path cannot be empty")
+	}
+
+	// Check for invalid characters (basic validation)
+	if strings.Contains(path, "\x00") {
+		return fmt.Errorf("path contains null character")
+	}
+
+	return nil
+}
+
+// validateDirectoryPath validates directory path format
+func validateDirectoryPath(path string) error {
+	if path == "" {
+		return fmt.Errorf("path cannot be empty")
+	}
+
+	// Check for invalid characters (basic validation)
+	if strings.Contains(path, "\x00") {
+		return fmt.Errorf("path contains null character")
+	}
+
 	return nil
 }
