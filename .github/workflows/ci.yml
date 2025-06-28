@@ -67,12 +67,23 @@ jobs:
 
     - name: Check formatting
       run: |
-        make fmt
+        echo "Installing goimports..."
+        go install golang.org/x/tools/cmd/goimports@latest
+        echo "Running formatting..."
+        goimports -w .
+        go fmt ./...
+        echo "Checking for differences..."
         if ! git diff --quiet; then
-          echo "Code is not properly formatted"
+          echo "❌ Code is not properly formatted"
+          echo "📋 The following files need formatting:"
+          git diff --name-only
+          echo "📋 Differences found:"
           git diff
+          echo ""
+          echo "💡 To fix locally, run: make fmt"
           exit 1
         fi
+        echo "✅ Code formatting is correct"
 
   build:
     name: Build
