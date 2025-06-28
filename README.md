@@ -1,7 +1,3 @@
-<div align="center">
-  <img src="docs/assets/logo.png" alt="Gander Logo" width="25%" />
-</div>
-
 # Gander - High-Performance Packet Filter and Proxy 
 
 [![CI](https://github.com/iamgaru/gander/workflows/CI/badge.svg)](https://github.com/iamgaru/gander/actions/workflows/ci.yml)
@@ -10,19 +6,20 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Release](https://img.shields.io/github/release/iamgaru/gander.svg)](https://github.com/iamgaru/gander/releases/latest)
 
-> **🎉 Architectural Refactoring Complete!** Gander has been completely refactored from a monolithic design to a modular, extensible system. See [docs/REFACTORING.md](docs/REFACTORING.md) for details.
-
 A high-performance packet filter and transparent proxy written in Go for selective inspection and logging. Designed for network security monitoring, filtering, debugging, and traffic analysis with minimal latency overhead.
 
-## New Modular Architecture
+## Architecture
 
-Gander now features a clean, modular architecture with:
-- **Plugin-based Filter System** (`internal/filter/`) - Extensible packet filtering with domain and IP providers
-- **Certificate Management** (`internal/cert/`) - Dynamic certificate generation with upstream sniffing
-- **HTTP Capture System** (`internal/capture/`) - Request/response correlation and structured JSON export  
-- **Relay System** (`internal/relay/`) - Efficient bidirectional data forwarding
-- **Protocol Utilities** (`pkg/protocol/`) - HTTP parsing and TLS detection
-- **Configuration System** (`internal/config/`) - Structured configuration with legacy migration
+Gander features a clean, modular architecture designed for extensibility and performance:
+
+- **🔌 Plugin-based Filter System** (`internal/filter/`) - Extensible packet filtering with domain, IP, and custom providers
+- **🔐 Certificate Management** (`internal/cert/`) - Dynamic certificate generation with upstream sniffing and caching
+- **📊 HTTP Capture System** (`internal/capture/`) - Request/response correlation and structured JSON export  
+- **⚡ High-Performance Relay** (`internal/relay/`) - Optimized bidirectional data forwarding
+- **🛠 Protocol Utilities** (`pkg/protocol/`) - HTTP parsing and TLS detection
+- **⚙️ Configuration System** (`internal/config/`) - Comprehensive validation with legacy migration
+
+> See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for detailed architecture diagrams and component interactions.
 
 ## Table of Contents
 
