@@ -63,6 +63,8 @@ bench:
 .PHONY: fmt
 fmt:
 	@echo "Formatting code..."
+	@which goimports > /dev/null || (echo "Installing goimports..." && go install golang.org/x/tools/cmd/goimports@latest)
+	goimports -w .
 	go fmt ./...
 
 # Lint code
