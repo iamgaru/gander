@@ -22,7 +22,7 @@ jobs:
       uses: actions/setup-go@v5
       with:
         go-version: ${{ matrix.go-version }}
-        cache: true  # Use built-in Go caching
+        cache: false  # Use built-in Go caching
 
     - name: Install dependencies
       run: make deps
@@ -51,7 +51,7 @@ jobs:
       uses: actions/setup-go@v5
       with:
         go-version: '1.22'
-        cache: true  # Use built-in Go caching
+        cache: false
 
     - name: Install dependencies
       run: make deps
@@ -67,41 +67,18 @@ jobs:
 
     - name: Check formatting
       run: |
-        echo "=== Debugging formatting check ==="
-        echo "Git status before formatting:"
-        git status --porcelain
-        echo ""
         echo "Installing goimports..."
         go install golang.org/x/tools/cmd/goimports@latest
-        echo ""
-        echo "Current Go version:"
-        go version
-        echo ""
-        echo "Tool versions:"
-        goimports -help | head -1 || echo "goimports version info not available"
-        echo ""
-        echo "Running goimports on Go files only..."
-        find . -name "*.go" -not -path "./vendor/*" -not -path "./.git/*" | xargs goimports -w
-        echo ""
-        echo "Running go fmt on Go packages..."
+        echo "Running formatter..."
+        goimports -w $(find . -name "*.go" -not -path "./vendor/*")
         go fmt ./...
-        echo ""
-        echo "Git status after formatting:"
-        git status --porcelain
-        echo ""
-        echo "Checking for differences..."
-        if ! git diff --quiet; then
-          echo "❌ Code formatting changes detected"
-          echo "📋 Files with changes:"
-          git diff --name-only
-          echo ""
-          echo "📋 Detailed differences:"
-          git diff --unified=1
-          echo ""
-          echo "💡 To fix locally, run: make fmt && git add . && git commit"
+        echo "Checking for changes..."
+        if [ -n "$(git status --porcelain)" ]; then
+          echo "Formatting changes detected:"
+          git diff
           exit 1
         fi
-        echo "✅ No formatting changes needed"
+        echo "Formatting check passed"
 
   build:
     name: Build
@@ -115,7 +92,7 @@ jobs:
       uses: actions/setup-go@v5
       with:
         go-version: '1.22'
-        cache: true
+        cache: false
 
     - name: Install dependencies
       run: make deps
@@ -143,7 +120,7 @@ jobs:
       uses: actions/setup-go@v5
       with:
         go-version: '1.22'
-        cache: true
+        cache: false
 
     - name: Install dependencies
       run: make deps
@@ -171,7 +148,7 @@ jobs:
       uses: actions/setup-go@v5
       with:
         go-version: '1.22'
-        cache: true
+        cache: false
 
     - name: Install dependencies
       run: make deps
@@ -198,7 +175,7 @@ jobs:
       uses: actions/setup-go@v5
       with:
         go-version: '1.22'
-        cache: true
+        cache: false
 
     - name: Install dependencies
       run: make deps
