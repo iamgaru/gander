@@ -274,7 +274,7 @@ func TestConfigValidate(t *testing.T) {
 				},
 				TLS: TLSConfig{
 					ValidDays:   365,
-					CertProfile: "custom",
+					CertProfile: CertProfileCustom,
 					CertDir:     "certs",
 				},
 			},
@@ -288,7 +288,7 @@ func TestConfigValidate(t *testing.T) {
 						ListenAddr: ":8080",
 					},
 					TLS: TLSConfig{
-						CertProfile: "custom",
+						CertProfile: CertProfileCustom,
 						CustomDetails: &CertCustomDetails{
 							CommonName: "test.example.com",
 						},
@@ -324,7 +324,7 @@ func TestConfigValidate(t *testing.T) {
 					WriteTimeout: 30,
 				},
 				Filters: FiltersConfig{
-					EnabledProviders: []string{"custom"},
+					EnabledProviders: []string{ProviderCustom},
 				},
 			},
 			expectError: true,
@@ -337,10 +337,10 @@ func TestConfigValidate(t *testing.T) {
 						ListenAddr: ":8080",
 					},
 					Filters: FiltersConfig{
-						EnabledProviders: []string{"custom"},
+						EnabledProviders: []string{ProviderCustom},
 					},
 					Providers: map[string]interface{}{
-						"custom": map[string]interface{}{
+						ProviderCustom: map[string]interface{}{
 							"enabled": true,
 						},
 					},
@@ -409,7 +409,7 @@ func TestFiltersConfigDefaults(t *testing.T) {
 	config.SetDefaults()
 
 	filters := config.Filters
-	expectedProviders := []string{"domain", "ip"}
+	expectedProviders := []string{ProviderDomain, ProviderIP}
 	if !reflect.DeepEqual(filters.EnabledProviders, expectedProviders) {
 		t.Errorf("Expected EnabledProviders %v, got %v", expectedProviders, filters.EnabledProviders)
 	}

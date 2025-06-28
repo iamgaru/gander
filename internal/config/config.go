@@ -5,6 +5,19 @@ import (
 	"strings"
 )
 
+// Constants for TLS certificate profiles
+const (
+	CertProfileMinimal = "minimal"
+	CertProfileCustom  = "custom"
+)
+
+// Constants for filter providers
+const (
+	ProviderDomain = "domain"
+	ProviderIP     = "ip"
+	ProviderCustom = "custom"
+)
+
 // ProxyConfig contains proxy server settings
 type ProxyConfig struct {
 	ListenAddr   string `json:"listen_addr"`
@@ -103,7 +116,7 @@ func (c *Config) SetDefaults() {
 
 	// Filter defaults - enable built-in providers if none specified
 	if len(c.Filters.EnabledProviders) == 0 {
-		c.Filters.EnabledProviders = []string{"domain", "ip"}
+		c.Filters.EnabledProviders = []string{ProviderDomain, ProviderIP}
 	}
 	if c.Filters.ProviderConfigs == nil {
 		c.Filters.ProviderConfigs = make(map[string]interface{})
@@ -205,13 +218,13 @@ func (c *Config) validateTLS() error {
 	}
 
 	// Validate cert profile
-	if c.TLS.CertProfile != "" && c.TLS.CertProfile != "minimal" && c.TLS.CertProfile != "custom" {
-		return fmt.Errorf("cert_profile must be 'minimal' or 'custom', got '%s'", c.TLS.CertProfile)
+	if c.TLS.CertProfile != "" && c.TLS.CertProfile != CertProfileMinimal && c.TLS.CertProfile != CertProfileCustom {
+		return fmt.Errorf("cert_profile must be '%s' or '%s', got '%s'", CertProfileMinimal, CertProfileCustom, c.TLS.CertProfile)
 	}
 
 	// If cert profile is custom, custom details should be provided
-	if c.TLS.CertProfile == "custom" && c.TLS.CustomDetails == nil {
-		return fmt.Errorf("custom_details required when cert_profile is 'custom'")
+	if c.TLS.CertProfile == CertProfileCustom && c.TLS.CustomDetails == nil {
+		return fmt.Errorf("custom_details required when cert_profile is '%s'", CertProfileCustom)
 	}
 
 	// Validate certificate file paths if specified
@@ -250,9 +263,9 @@ func (c *Config) validateTLS() error {
 func (c *Config) validateFilters() error {
 	// Validate enabled providers
 	validProviders := map[string]bool{
-		"domain": true,
-		"ip":     true,
-		"custom": true,
+		ProviderDomain: true,
+		ProviderIP:     true,
+		ProviderCustom: true,
 	}
 
 	for _, provider := range c.Filters.EnabledProviders {
@@ -263,7 +276,7 @@ func (c *Config) validateFilters() error {
 
 	// Validate that provider configs exist for enabled providers
 	for _, provider := range c.Filters.EnabledProviders {
-		if provider == "custom" {
+		if provider == ProviderCustom {
 			// Custom providers should have config in the main Providers section
 			if c.Providers == nil || c.Providers[provider] == nil {
 				return fmt.Errorf("custom provider '%s' enabled but no configuration found in providers section", provider)
