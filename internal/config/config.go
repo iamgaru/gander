@@ -20,12 +20,16 @@ const (
 
 // ProxyConfig contains proxy server settings
 type ProxyConfig struct {
-	ListenAddr   string `json:"listen_addr"`
-	Transparent  bool   `json:"transparent"`
-	ExplicitPort int    `json:"explicit_port"`
-	BufferSize   int    `json:"buffer_size"`
-	ReadTimeout  int    `json:"read_timeout_seconds"`
-	WriteTimeout int    `json:"write_timeout_seconds"`
+	ListenAddr        string `json:"listen_addr"`
+	Transparent       bool   `json:"transparent"`
+	ExplicitPort      int    `json:"explicit_port"`
+	BufferSize        int    `json:"buffer_size"`
+	ReadTimeout       int    `json:"read_timeout_seconds"`
+	WriteTimeout      int    `json:"write_timeout_seconds"`
+	MaxConnections    int    `json:"max_connections"`
+	WorkerPoolSize    int    `json:"worker_pool_size"`
+	EnableKeepalive   bool   `json:"enable_keepalive"`
+	KeepaliveTimeout  int    `json:"keepalive_timeout_seconds"`
 }
 
 // LoggingConfig contains logging settings
@@ -76,13 +80,64 @@ type LegacyRulesConfig struct {
 	BypassIPs      []string `json:"bypass_source_ips"`
 }
 
+// PerformanceConfig contains performance optimization settings
+type PerformanceConfig struct {
+	ConnectionPool    ConnectionPoolConfig    `json:"connection_pool"`
+	BufferPool        BufferPoolConfig        `json:"buffer_pool"`
+	TLSSessionCache   TLSSessionCacheConfig   `json:"tls_session_cache"`
+	CertPreGeneration CertPreGenerationConfig `json:"cert_pregeneration"`
+	WorkerPool        WorkerPoolConfig        `json:"worker_pool"`
+}
+
+// ConnectionPoolConfig contains connection pool settings
+type ConnectionPoolConfig struct {
+	Enabled         bool `json:"enabled"`
+	MaxPoolSize     int  `json:"max_pool_size"`
+	MaxIdleTime     int  `json:"max_idle_time_minutes"`
+	CleanupInterval int  `json:"cleanup_interval_minutes"`
+}
+
+// BufferPoolConfig contains buffer pool settings
+type BufferPoolConfig struct {
+	EnableStats     bool `json:"enable_stats"`
+	SmallBufferSize int  `json:"small_buffer_size"`
+	LargeBufferSize int  `json:"large_buffer_size"`
+}
+
+// TLSSessionCacheConfig contains TLS session cache settings
+type TLSSessionCacheConfig struct {
+	Enabled             bool `json:"enabled"`
+	MaxSessions         int  `json:"max_sessions"`
+	SessionTTLHours     int  `json:"session_ttl_hours"`
+	TicketKeyRotationHr int  `json:"ticket_key_rotation_hours"`
+}
+
+// CertPreGenerationConfig contains certificate pre-generation settings
+type CertPreGenerationConfig struct {
+	Enabled            bool     `json:"enabled"`
+	WorkerCount        int      `json:"worker_count"`
+	PopularDomainCount int      `json:"popular_domain_count"`
+	FrequencyThreshold int      `json:"frequency_threshold"`
+	StaticDomains      []string `json:"static_domains"`
+	EnableFreqTracking bool     `json:"enable_frequency_tracking"`
+}
+
+// WorkerPoolConfig contains worker pool settings
+type WorkerPoolConfig struct {
+	Enabled       bool `json:"enabled"`
+	WorkerCount   int  `json:"worker_count"`
+	QueueSize     int  `json:"queue_size"`
+	JobTimeoutSec int  `json:"job_timeout_seconds"`
+}
+
 // Config is the main configuration structure
 type Config struct {
-	Proxy     ProxyConfig            `json:"proxy"`
-	Logging   LoggingConfig          `json:"logging"`
-	TLS       TLSConfig              `json:"tls"`
-	Filters   FiltersConfig          `json:"filters"`
-	Providers map[string]interface{} `json:"providers"`
+	Proxy       ProxyConfig            `json:"proxy"`
+	Logging     LoggingConfig          `json:"logging"`
+	TLS         TLSConfig              `json:"tls"`
+	Filters     FiltersConfig          `json:"filters"`
+	Providers   map[string]interface{} `json:"providers"`
+	Performance PerformanceConfig      `json:"performance"`
 
 	// Legacy support - will be mapped to built-in providers
 	Rules LegacyRulesConfig `json:"rules"`
@@ -92,13 +147,22 @@ type Config struct {
 func (c *Config) SetDefaults() {
 	// Proxy defaults
 	if c.Proxy.BufferSize == 0 {
-		c.Proxy.BufferSize = 32768
+		c.Proxy.BufferSize = 65536 // Increased from 32KB to 64KB
 	}
 	if c.Proxy.ReadTimeout == 0 {
-		c.Proxy.ReadTimeout = 30
+		c.Proxy.ReadTimeout = 60 // Increased from 30s to 60s
 	}
 	if c.Proxy.WriteTimeout == 0 {
-		c.Proxy.WriteTimeout = 30
+		c.Proxy.WriteTimeout = 60 // Increased from 30s to 60s
+	}
+	if c.Proxy.MaxConnections == 0 {
+		c.Proxy.MaxConnections = 10000
+	}
+	if c.Proxy.WorkerPoolSize == 0 {
+		c.Proxy.WorkerPoolSize = 0 // 0 means auto-detect (runtime.NumCPU() * 2)
+	}
+	if c.Proxy.KeepaliveTimeout == 0 {
+		c.Proxy.KeepaliveTimeout = 300 // 5 minutes
 	}
 
 	// Logging defaults
@@ -124,6 +188,9 @@ func (c *Config) SetDefaults() {
 	if c.Providers == nil {
 		c.Providers = make(map[string]interface{})
 	}
+
+	// Performance defaults
+	c.setPerformanceDefaults()
 }
 
 // Validate validates the configuration
@@ -285,6 +352,72 @@ func (c *Config) validateFilters() error {
 	}
 
 	return nil
+}
+
+// setPerformanceDefaults sets default values for performance optimizations
+func (c *Config) setPerformanceDefaults() {
+	// Connection pool defaults
+	if !c.Performance.ConnectionPool.Enabled {
+		c.Performance.ConnectionPool.Enabled = true // Enable by default
+	}
+	if c.Performance.ConnectionPool.MaxPoolSize == 0 {
+		c.Performance.ConnectionPool.MaxPoolSize = 100
+	}
+	if c.Performance.ConnectionPool.MaxIdleTime == 0 {
+		c.Performance.ConnectionPool.MaxIdleTime = 5 // 5 minutes
+	}
+	if c.Performance.ConnectionPool.CleanupInterval == 0 {
+		c.Performance.ConnectionPool.CleanupInterval = 1 // 1 minute
+	}
+
+	// Buffer pool defaults
+	c.Performance.BufferPool.EnableStats = true
+	if c.Performance.BufferPool.SmallBufferSize == 0 {
+		c.Performance.BufferPool.SmallBufferSize = 4096 // 4KB
+	}
+	if c.Performance.BufferPool.LargeBufferSize == 0 {
+		c.Performance.BufferPool.LargeBufferSize = 65536 // 64KB
+	}
+
+	// TLS session cache defaults
+	if !c.Performance.TLSSessionCache.Enabled {
+		c.Performance.TLSSessionCache.Enabled = true // Enable by default
+	}
+	if c.Performance.TLSSessionCache.MaxSessions == 0 {
+		c.Performance.TLSSessionCache.MaxSessions = 10000
+	}
+	if c.Performance.TLSSessionCache.SessionTTLHours == 0 {
+		c.Performance.TLSSessionCache.SessionTTLHours = 24 // 24 hours
+	}
+	if c.Performance.TLSSessionCache.TicketKeyRotationHr == 0 {
+		c.Performance.TLSSessionCache.TicketKeyRotationHr = 1 // 1 hour
+	}
+
+	// Certificate pre-generation defaults
+	// Disabled by default - only enable if explicitly configured
+	if c.Performance.CertPreGeneration.WorkerCount == 0 {
+		c.Performance.CertPreGeneration.WorkerCount = 2
+	}
+	if c.Performance.CertPreGeneration.PopularDomainCount == 0 {
+		c.Performance.CertPreGeneration.PopularDomainCount = 100
+	}
+	if c.Performance.CertPreGeneration.FrequencyThreshold == 0 {
+		c.Performance.CertPreGeneration.FrequencyThreshold = 5
+	}
+
+	// Worker pool defaults
+	if !c.Performance.WorkerPool.Enabled {
+		c.Performance.WorkerPool.Enabled = true // Enable by default
+	}
+	if c.Performance.WorkerPool.WorkerCount == 0 {
+		c.Performance.WorkerPool.WorkerCount = 0 // 0 means auto-detect
+	}
+	if c.Performance.WorkerPool.QueueSize == 0 {
+		c.Performance.WorkerPool.QueueSize = 1000
+	}
+	if c.Performance.WorkerPool.JobTimeoutSec == 0 {
+		c.Performance.WorkerPool.JobTimeoutSec = 30
+	}
 }
 
 // Helper validation functions

@@ -7,6 +7,7 @@ import (
 	"log"
 	"net"
 	"os"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -15,7 +16,10 @@ import (
 	"github.com/iamgaru/gander/internal/cert"
 	"github.com/iamgaru/gander/internal/config"
 	"github.com/iamgaru/gander/internal/filter"
+	"github.com/iamgaru/gander/internal/pool"
 	"github.com/iamgaru/gander/internal/relay"
+	tlsopt "github.com/iamgaru/gander/internal/tls"
+	"github.com/iamgaru/gander/internal/worker"
 	"github.com/iamgaru/gander/pkg/protocol"
 )
 
@@ -25,11 +29,15 @@ type Server struct {
 	filterManager *filter.Manager
 	stats         *ProxyStats
 
-	// Core components
-	bufferPool     *relay.BufferPool
-	certManager    cert.CertificateProvider
-	relayer        *relay.Relayer
-	captureManager *capture.CaptureManager
+	// Core components - Enhanced
+	bufferPool       *pool.EnhancedBufferPool
+	connectionPool   *pool.ConnectionPool
+	workerPool       *worker.WorkerPool
+	tlsSessionCache  *tlsopt.SessionCache
+	certManager      cert.CertificateProvider
+	certPreGenMgr    *cert.PreGenerationManager
+	relayer          *relay.Relayer
+	captureManager   *capture.CaptureManager
 
 	// Runtime state
 	logFile    *os.File
@@ -48,12 +56,54 @@ func NewServer(cfg *config.Config, filterManager *filter.Manager) (*Server, erro
 		return nil, err
 	}
 
-	// Create components
-	bufferPool := relay.NewBufferPool(cfg.Proxy.BufferSize)
+	// Create enhanced buffer pool
+	bufferPool := pool.NewEnhancedBufferPool(cfg.Performance.BufferPool.EnableStats)
+
+	// Create connection pool
+	connectionPoolConfig := &pool.PoolConfig{
+		MaxPoolSize:     cfg.Performance.ConnectionPool.MaxPoolSize,
+		MaxIdleTime:     time.Duration(cfg.Performance.ConnectionPool.MaxIdleTime) * time.Minute,
+		DialTimeout:     10 * time.Second,
+		CleanupInterval: time.Duration(cfg.Performance.ConnectionPool.CleanupInterval) * time.Minute,
+		EnableDebug:     cfg.Logging.EnableDebug,
+	}
+	connectionPool := pool.NewConnectionPool(connectionPoolConfig)
+
+	// Create TLS session cache
+	tlsSessionCacheConfig := &tlsopt.SessionCacheConfig{
+		MaxSessions:         cfg.Performance.TLSSessionCache.MaxSessions,
+		SessionTTL:          time.Duration(cfg.Performance.TLSSessionCache.SessionTTLHours) * time.Hour,
+		TicketKeyRotation:   time.Duration(cfg.Performance.TLSSessionCache.TicketKeyRotationHr) * time.Hour,
+		CleanupInterval:     5 * time.Minute,
+		EnableDebug:         cfg.Logging.EnableDebug,
+		EnableClientCache:   true,
+		EnableServerCache:   true,
+	}
+	tlsSessionCache := tlsopt.NewSessionCache(tlsSessionCacheConfig)
+
+	// Create worker pool
+	workerPoolConfig := &worker.WorkerPoolConfig{
+		WorkerCount:     cfg.Performance.WorkerPool.WorkerCount,
+		QueueSize:       cfg.Performance.WorkerPool.QueueSize,
+		EnableDebug:     cfg.Logging.EnableDebug,
+		JobTimeout:      time.Duration(cfg.Performance.WorkerPool.JobTimeoutSec) * time.Second,
+		ShutdownTimeout: 10 * time.Second,
+	}
+	if workerPoolConfig.WorkerCount == 0 {
+		workerPoolConfig.WorkerCount = runtime.NumCPU() * 2
+	}
+	workerPool := worker.NewWorkerPool(workerPoolConfig)
+
 	stats := NewProxyStats()
 
 	// Initialize certificate manager
 	certManager := cert.NewCertificateManager(cfg.Logging.EnableDebug)
+	
+	// Set TLS session cache on certificate manager
+	if tlsSessionCache != nil && cfg.Performance.TLSSessionCache.Enabled {
+		certManager.SetTLSSessionCache(tlsSessionCache)
+	}
+	
 	if cfg.TLS.AutoGenerate {
 		// Set default certificate details
 		organization := "Gamu Corporation"
@@ -103,14 +153,31 @@ func NewServer(cfg *config.Config, filterManager *filter.Manager) (*Server, erro
 		}
 	}
 
-	// Initialize relayer
-	relayer := relay.NewRelayer(
+	// Initialize certificate pre-generation manager
+	certPreGenConfig := &cert.PreGenerationConfig{
+		Enabled:             cfg.Performance.CertPreGeneration.Enabled,
+		WorkerCount:         cfg.Performance.CertPreGeneration.WorkerCount,
+		QueueSize:           1000,
+		PopularDomainCount:  cfg.Performance.CertPreGeneration.PopularDomainCount,
+		FrequencyThreshold:  cfg.Performance.CertPreGeneration.FrequencyThreshold,
+		PreGenInterval:      10 * time.Minute,
+		DomainTTL:           24 * time.Hour,
+		StaticDomains:       cfg.Performance.CertPreGeneration.StaticDomains,
+		EnableFreqTracking:  cfg.Performance.CertPreGeneration.EnableFreqTracking,
+		MaxConcurrentGens:   10,
+	}
+	certPreGenMgr := cert.NewPreGenerationManager(certManager, certPreGenConfig, cfg.Logging.EnableDebug)
+
+	// Initialize relayer with enhanced components
+	relayer := relay.NewEnhancedRelayer(
 		bufferPool,
+		connectionPool,
 		time.Duration(cfg.Proxy.ReadTimeout)*time.Second,
 		time.Duration(cfg.Proxy.WriteTimeout)*time.Second,
 		cfg.Logging.EnableDebug,
 	)
 	relayer.SetCertificateManager(certManager)
+	relayer.SetTLSSessionCache(tlsSessionCache)
 
 	// Initialize capture manager
 	captureManager := capture.NewCaptureManager(cfg.Logging.CaptureDir, cfg.Logging.EnableDebug)
@@ -120,15 +187,19 @@ func NewServer(cfg *config.Config, filterManager *filter.Manager) (*Server, erro
 	relayer.SetCaptureHandler(captureManager)
 
 	server := &Server{
-		config:         cfg,
-		filterManager:  filterManager,
-		stats:          stats,
-		bufferPool:     bufferPool,
-		certManager:    certManager,
-		relayer:        relayer,
-		captureManager: captureManager,
-		logFile:        logFile,
-		shutdownCh:     make(chan struct{}),
+		config:           cfg,
+		filterManager:    filterManager,
+		stats:            stats,
+		bufferPool:       bufferPool,
+		connectionPool:   connectionPool,
+		workerPool:       workerPool,
+		tlsSessionCache:  tlsSessionCache,
+		certManager:      certManager,
+		certPreGenMgr:    certPreGenMgr,
+		relayer:          relayer,
+		captureManager:   captureManager,
+		logFile:          logFile,
+		shutdownCh:       make(chan struct{}),
 	}
 
 	return server, nil
@@ -136,6 +207,28 @@ func NewServer(cfg *config.Config, filterManager *filter.Manager) (*Server, erro
 
 // Start starts the proxy server
 func (s *Server) Start() error {
+	// Start worker pool if enabled
+	if s.config.Performance.WorkerPool.Enabled {
+		if err := s.workerPool.Start(); err != nil {
+			return err
+		}
+	}
+
+	// Start TLS session cache if enabled
+	if s.config.Performance.TLSSessionCache.Enabled {
+		// Session cache starts automatically in NewSessionCache
+		log.Printf("TLS session cache enabled with %d max sessions", s.config.Performance.TLSSessionCache.MaxSessions)
+	}
+
+	// Start certificate pre-generation if enabled
+	if s.config.Performance.CertPreGeneration.Enabled {
+		if err := s.certPreGenMgr.Start(); err != nil {
+			log.Printf("Failed to start certificate pre-generation: %v", err)
+		} else {
+			log.Printf("Certificate pre-generation started")
+		}
+	}
+
 	// Start HTTP listener
 	httpListener, err := net.Listen("tcp", s.config.Proxy.ListenAddr)
 	if err != nil {
@@ -148,8 +241,12 @@ func (s *Server) Start() error {
 	// Start statistics reporting
 	go s.reportStats()
 
-	// Accept connections
-	go s.acceptConnections(httpListener)
+	// Accept connections with worker pool
+	if s.config.Performance.WorkerPool.Enabled {
+		go s.acceptConnectionsWithWorkerPool(httpListener)
+	} else {
+		go s.acceptConnections(httpListener)
+	}
 
 	return nil
 }
@@ -157,6 +254,33 @@ func (s *Server) Start() error {
 // Stop stops the proxy server
 func (s *Server) Stop() error {
 	close(s.shutdownCh)
+
+	// Stop worker pool
+	if s.workerPool != nil && s.config.Performance.WorkerPool.Enabled {
+		if err := s.workerPool.Stop(10 * time.Second); err != nil {
+			log.Printf("Worker pool stop error: %v", err)
+		}
+	}
+
+	// Stop certificate pre-generation
+	if s.certPreGenMgr != nil && s.config.Performance.CertPreGeneration.Enabled {
+		if err := s.certPreGenMgr.Stop(); err != nil {
+			log.Printf("Certificate pre-generation stop error: %v", err)
+		}
+	}
+
+	// Close connection pool
+	if s.connectionPool != nil {
+		if err := s.connectionPool.Close(); err != nil {
+			log.Printf("Connection pool close error: %v", err)
+		}
+	}
+
+	// Clear TLS session cache
+	if s.tlsSessionCache != nil {
+		cleared := s.tlsSessionCache.Clear()
+		log.Printf("Cleared %d TLS sessions", cleared)
+	}
 
 	if s.httpListener != nil {
 		s.httpListener.Close()
@@ -193,6 +317,40 @@ func (s *Server) acceptConnections(listener net.Listener) {
 	}
 }
 
+// acceptConnectionsWithWorkerPool accepts connections and distributes them to worker pool
+func (s *Server) acceptConnectionsWithWorkerPool(listener net.Listener) {
+	for {
+		conn, err := listener.Accept()
+		if err != nil {
+			select {
+			case <-s.shutdownCh:
+				return
+			default:
+				log.Printf("Accept error: %v", err)
+				continue
+			}
+		}
+
+		// Submit connection to worker pool
+		handler := &connectionHandler{server: s}
+		if err := s.workerPool.SubmitConnection(conn, handler); err != nil {
+			log.Printf("Failed to submit connection to worker pool: %v", err)
+			conn.Close()
+		}
+	}
+}
+
+// connectionHandler implements worker.ConnectionHandler
+type connectionHandler struct {
+	server *Server
+}
+
+// HandleConnection processes a connection using the existing handleConnection logic
+func (ch *connectionHandler) HandleConnection(conn net.Conn) error {
+	ch.server.handleConnection(conn)
+	return nil
+}
+
 // handleConnection handles a single client connection
 func (s *Server) handleConnection(clientConn net.Conn) {
 	defer clientConn.Close()
@@ -205,8 +363,11 @@ func (s *Server) handleConnection(clientConn net.Conn) {
 		StartTime: time.Now(),
 	}
 
-	// Read initial data to determine protocol
-	buffer := make([]byte, 1024)
+	// Read initial data to determine protocol using enhanced buffer pool
+	pooledBuffer := s.bufferPool.NewPooledBuffer(pool.SmallBuffer)
+	defer pooledBuffer.Release()
+	
+	buffer := pooledBuffer.Slice(1024)
 	n, err := clientConn.Read(buffer)
 	if err != nil {
 		log.Printf("Failed to read initial data: %v", err)
@@ -243,6 +404,11 @@ func (s *Server) handleHTTPConnection(clientConn net.Conn, data []byte, info *re
 	info.Domain = host
 	info.ServerAddr = serverAddr
 	info.Protocol = "HTTP"
+
+	// Record domain access for pre-generation tracking
+	if s.certPreGenMgr != nil && s.config.Performance.CertPreGeneration.EnableFreqTracking {
+		s.certPreGenMgr.RecordDomainAccess(host)
+	}
 
 	// Apply filters
 	ctx := context.Background()
@@ -289,6 +455,11 @@ func (s *Server) handleTLSConnection(clientConn net.Conn, data []byte, info *rel
 	info.Domain = sni
 	info.ServerAddr = sni + ":443"
 	info.Protocol = "HTTPS"
+
+	// Record domain access for pre-generation tracking
+	if s.certPreGenMgr != nil && s.config.Performance.CertPreGeneration.EnableFreqTracking {
+		s.certPreGenMgr.RecordDomainAccess(sni)
+	}
 
 	// Apply filters
 	ctx := context.Background()
@@ -360,6 +531,11 @@ func (s *Server) handleCONNECTRequest(clientConn net.Conn, data []byte, info *re
 	info.Domain = host
 	info.ServerAddr = target
 	info.Protocol = "HTTPS"
+
+	// Record domain access for pre-generation tracking
+	if s.certPreGenMgr != nil && s.config.Performance.CertPreGeneration.EnableFreqTracking {
+		s.certPreGenMgr.RecordDomainAccess(host)
+	}
 
 	// Apply filters
 	ctx := context.Background()
@@ -447,10 +623,10 @@ func (s *Server) copyData(dst, src net.Conn, direction string) {
 	defer dst.Close()
 	defer src.Close()
 
-	buffer := s.bufferPool.Get()
-	defer s.bufferPool.Put(buffer)
+	pooledBuffer := s.bufferPool.NewPooledBuffer(pool.LargeBuffer)
+	defer pooledBuffer.Release()
 
-	_, err := io.Copy(dst, src)
+	_, err := io.CopyBuffer(dst, src, pooledBuffer.Bytes())
 	if err != nil && !strings.Contains(err.Error(), "use of closed network connection") {
 		log.Printf("Error copying data (%s): %v", direction, err)
 	}
@@ -512,6 +688,7 @@ func (s *Server) reportStats() {
 			captureStats := s.captureManager.GetStats()
 			certStats := s.certManager.GetStats()
 
+			// Enhanced statistics reporting
 			log.Printf("Proxy Stats: %d total, %d active, %d inspected | Capture: %d requests, %d responses, %d pairs | Certs: %d generated, %d cached",
 				proxyStats.TotalConnections,
 				proxyStats.ActiveConnections,
@@ -522,6 +699,64 @@ func (s *Server) reportStats() {
 				certStats.GeneratedCerts,
 				certStats.CachedCerts,
 			)
+
+			// Connection pool stats
+			if s.connectionPool != nil {
+				poolStats := s.connectionPool.GetStats()
+				log.Printf("Connection Pool: %d pools, %d total conns, %d active, %d idle | Hits: %d, Misses: %d, Hit Rate: %.1f%%",
+					poolStats.TotalPools,
+					poolStats.TotalConnections,
+					poolStats.ActiveConnections,
+					poolStats.IdleConnections,
+					poolStats.PoolHits,
+					poolStats.PoolMisses,
+					float64(poolStats.PoolHits)*100/float64(poolStats.PoolHits+poolStats.PoolMisses+1),
+				)
+			}
+
+			// Worker pool stats
+			if s.workerPool != nil && s.config.Performance.WorkerPool.Enabled {
+				workerStats := s.workerPool.GetStats()
+				log.Printf("Worker Pool: %d active, %d idle, %d queued | Processed: %d, Failed: %d, Avg Latency: %dms",
+					workerStats.ActiveWorkers,
+					workerStats.IdleWorkers,
+					workerStats.CurrentQueueLen,
+					workerStats.ProcessedJobs,
+					workerStats.FailedJobs,
+					workerStats.AverageLatency,
+				)
+			}
+
+			// TLS session cache stats
+			if s.tlsSessionCache != nil && s.config.Performance.TLSSessionCache.Enabled {
+				sessionStats := s.tlsSessionCache.GetStats()
+				log.Printf("TLS Sessions: %d active, %d hits, %d misses | Resumption Rate: %.1f%%",
+					sessionStats.ActiveSessions,
+					sessionStats.SessionHits,
+					sessionStats.SessionMisses,
+					sessionStats.ResumptionRate*100,
+				)
+			}
+
+			// Certificate pre-generation stats
+			if s.certPreGenMgr != nil && s.config.Performance.CertPreGeneration.Enabled {
+				preGenStats := s.certPreGenMgr.GetStats()
+				log.Printf("Cert PreGen: %d generated, %d queued, %d popular domains | Utilization: %.1f%%",
+					preGenStats.TotalPreGenerated,
+					preGenStats.QueuedDomains,
+					preGenStats.PopularDomainCount,
+					preGenStats.WorkerUtilization*100,
+				)
+			}
+
+			// Buffer pool efficiency
+			if s.bufferPool != nil {
+				efficiency := s.bufferPool.GetEfficiency()
+				if overall, ok := efficiency["overall_reuse_rate"]; ok {
+					log.Printf("Buffer Pool: %.1f%% reuse rate", overall*100)
+				}
+			}
+
 		case <-s.shutdownCh:
 			return
 		}
@@ -534,11 +769,35 @@ func (s *Server) GetStats() map[string]interface{} {
 	captureStats := s.captureManager.GetStats()
 	certStats := s.certManager.GetStats()
 
-	return map[string]interface{}{
+	result := map[string]interface{}{
 		"proxy":   proxyStats,
 		"capture": captureStats,
 		"certs":   certStats,
 	}
+
+	// Add performance statistics
+	if s.connectionPool != nil {
+		result["connection_pool"] = s.connectionPool.GetStats()
+	}
+
+	if s.workerPool != nil && s.config.Performance.WorkerPool.Enabled {
+		result["worker_pool"] = s.workerPool.GetStats()
+	}
+
+	if s.tlsSessionCache != nil && s.config.Performance.TLSSessionCache.Enabled {
+		result["tls_sessions"] = s.tlsSessionCache.GetStats()
+	}
+
+	if s.certPreGenMgr != nil && s.config.Performance.CertPreGeneration.Enabled {
+		result["cert_pregeneration"] = s.certPreGenMgr.GetStats()
+	}
+
+	if s.bufferPool != nil {
+		result["buffer_pool"] = s.bufferPool.GetStats()
+		result["buffer_efficiency"] = s.bufferPool.GetEfficiency()
+	}
+
+	return result
 }
 
 // ReloadConfig reloads the server configuration
