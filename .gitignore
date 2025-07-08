@@ -3,6 +3,7 @@ logs/
 *.log
 
 # Build artifacts
+bin/
 build/
 dist/
 
@@ -47,4 +48,24 @@ vendor/
 
 # Go workspace file
 go.work
+
+# Configuration files (keep examples, ignore active config)
+conf/config.json
+config.json
+
+# Development captures and test data
+captures/archived/development/
+captures/current/
+*.capture
+
+# Certificate files (security)
+certs/*.key
+certs/*.crt
+certs/*.pem
+!certs/.gitkeep
+
+# Temporary development files
+*.debug
+*_test.json
+temp_*
 

@@ -17,8 +17,8 @@ func NewLoader() *Loader {
 // Load loads configuration from a file
 func (l *Loader) Load(filename string) (*Config, error) {
 	// Prevent using example config directly
-	if filename == "config_example.json" {
-		return nil, fmt.Errorf("cannot use config_example.json directly - copy it to config.json and customize it first")
+	if filename == "config_example.json" || filename == "conf/examples/basic.json" {
+		return nil, fmt.Errorf("cannot use example config directly - copy it to conf/config.json and customize it first")
 	}
 
 	data, err := os.ReadFile(filename)

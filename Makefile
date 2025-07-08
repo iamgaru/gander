@@ -2,8 +2,8 @@
 
 # Variables
 BINARY_NAME=gander
-CONFIG_FILE=config.json
-BUILD_DIR=build
+CONFIG_FILE=conf/config.json
+BUILD_DIR=bin
 CERT_DIR=certs
 CAPTURE_DIR=captures
 LOGS_DIR=logs
@@ -126,13 +126,13 @@ setup:
 	@echo ""
 	@echo "⚠️  IMPORTANT: You must create your own config.json file"
 	@echo "📋 Steps:"
-	@echo "   1. Copy config_example.json to config.json"
-	@echo "   2. Edit config.json with your specific settings"
+	@echo "   1. Copy conf/examples/basic.json to conf/config.json"
+	@echo "   2. Edit conf/config.json with your specific settings"
 	@echo "   3. Review all settings, especially listen_addr and domains"
 	@echo ""
 	@if [ ! -f $(CONFIG_FILE) ]; then \
 		echo "❌ $(CONFIG_FILE) not found - please create it manually"; \
-		echo "💡 Run: cp config_example.json $(CONFIG_FILE)"; \
+		echo "💡 Run: cp conf/examples/basic.json $(CONFIG_FILE)"; \
 		echo "💡 Then: edit $(CONFIG_FILE)"; \
 	else \
 		echo "✅ $(CONFIG_FILE) already exists"; \
@@ -147,7 +147,7 @@ init-config:
 		echo "💡 To overwrite, run: rm $(CONFIG_FILE) && make init-config"; \
 		exit 1; \
 	fi
-	@cp config_example.json $(CONFIG_FILE)
+	@cp conf/examples/basic.json $(CONFIG_FILE)
 	@echo "✅ Created $(CONFIG_FILE) from example"
 	@echo ""
 	@echo "⚠️  IMPORTANT: Please review and edit $(CONFIG_FILE) before use"
@@ -166,11 +166,11 @@ init-enhanced-config:
 		echo "💡 To overwrite, run: rm $(CONFIG_FILE) && make init-enhanced-config"; \
 		exit 1; \
 	fi
-	@if [ -f config_storage_example.json ]; then \
-		cp config_storage_example.json $(CONFIG_FILE); \
+	@if [ -f conf/examples/storage_optimized.json ]; then \
+		cp conf/examples/storage_optimized.json $(CONFIG_FILE); \
 		echo "✅ Created enhanced $(CONFIG_FILE) with identity and storage features"; \
 	else \
-		cp config_example.json $(CONFIG_FILE); \
+		cp conf/examples/basic.json $(CONFIG_FILE); \
 		echo "⚠️  Enhanced config template not found, using basic template"; \
 		echo "💡 See docs/enhanced_capture_config.md for enhanced features"; \
 	fi
@@ -610,7 +610,7 @@ release: build-cross
 			archive_name="$(BINARY_NAME)-$$platform"; \
 			mkdir -p $(BUILD_DIR)/release/$$archive_name; \
 			cp $$binary $(BUILD_DIR)/release/$$archive_name/$(BINARY_NAME)$$(echo $$binary | grep -o '\.exe$$' || echo ''); \
-			cp config_example.json $(BUILD_DIR)/release/$$archive_name/; \
+			cp conf/examples/basic.json $(BUILD_DIR)/release/$$archive_name/config_example.json; \
 			cp README.md $(BUILD_DIR)/release/$$archive_name/; \
 			cd $(BUILD_DIR)/release && tar -czf $$archive_name.tar.gz $$archive_name; \
 			rm -rf $$archive_name; \
@@ -637,7 +637,7 @@ docker-build:
 		echo "COPY --from=builder /app/gander ." >> Dockerfile; \
 		echo "RUN mkdir -p /app/captures /app/certs /app/logs" >> Dockerfile; \
 		echo "EXPOSE 8848" >> Dockerfile; \
-		echo "CMD [\"./gander\", \"config.json\"]" >> Dockerfile; \
+		echo "CMD [\"./gander\", \"conf/config.json\"]" >> Dockerfile; \
 		echo "✅ Created basic Dockerfile"; \
 	fi
 	@docker build -t gander:latest .
@@ -646,7 +646,7 @@ docker-build:
 	@echo "   • gander:latest"
 	@echo "   • gander:$$(git rev-parse --short HEAD 2>/dev/null || echo "dev")"
 	@echo ""
-	@echo "🚀 Run with: docker run -p 8848:8848 -v \$$(pwd)/config.json:/app/config.json gander:latest"
+	@echo "🚀 Run with: docker run -p 8848:8848 -v \$$(pwd)/conf/config.json:/app/conf/config.json gander:latest"
 
 # View logs
 .PHONY: logs

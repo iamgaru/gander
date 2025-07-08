@@ -150,10 +150,10 @@ make gen-ca
 ### 3. Quick Configuration
 ```bash
 # Copy the optimized production config
-cp config_storage_example.json config.json
+cp conf/examples/storage_optimized.json conf/config.json
 
 # Edit for your environment
-nano config.json
+nano conf/config.json
 ```
 
 ### 4. Run and Test
@@ -345,7 +345,7 @@ docker build -t gander .
 # Run with volume mounts
 docker run -d \
   -p 8848:8848 \
-  -v $(pwd)/config.json:/app/config.json \
+  -v $(pwd)/conf/config.json:/app/conf/config.json \
   -v $(pwd)/captures:/app/captures \
   -v $(pwd)/certs:/app/certs \
   gander
@@ -369,7 +369,7 @@ services:
     image: gander:latest
     ports: ["8848:8848"]
     volumes:
-      - ./config.json:/app/config.json
+      - ./conf/config.json:/app/conf/config.json
       - ./captures:/app/captures
     deploy:
       replicas: 3

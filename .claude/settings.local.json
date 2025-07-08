@@ -1,0 +1,23 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(make:*)",
+      "Bash(./gander config.json)",
+      "Bash(curl:*)",
+      "Bash(pkill:*)",
+      "Bash(go build:*)",
+      "Bash(time curl:*)",
+      "Bash(rg:*)",
+      "Bash(./gander_debug:*)",
+      "Bash(cat:*)",
+      "Bash(./gander_fixed config.json)",
+      "Bash(git add:*)",
+      "Bash(mkdir:*)",
+      "Bash(mv:*)",
+      "Bash(ls:*)",
+      "Bash(find:*)",
+      "Bash(touch:*)"
+    ],
+    "deny": []
+  }
+}
