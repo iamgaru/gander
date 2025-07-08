@@ -140,13 +140,13 @@ func (cp *ConnectionPool) GetConnection(ctx context.Context, target string, useT
 		isTLS:     useTLS,
 	}
 
-	return &poolConnectionWrapper{pooledConn: pooledConn, pool: cp}, nil
+	return &poolConnectionWrapper{pooledConnection: pooledConn, pool: cp}, nil
 }
 
 // getFromPool tries to get a connection from the pool
 func (cp *ConnectionPool) getFromPool(target string) *pooledConnection {
 	cp.poolsMutex.RLock()
-	targetPool, exists := cp.pools[target]
+	pool, exists := cp.pools[target]
 	cp.poolsMutex.RUnlock()
 
 	if !exists {
@@ -154,7 +154,7 @@ func (cp *ConnectionPool) getFromPool(target string) *pooledConnection {
 	}
 
 	select {
-	case conn := <-targetPool.connections:
+	case conn := <-pool.connections:
 		// Check if connection is still valid and not expired
 		if time.Since(conn.lastUsed) > cp.maxIdleTime {
 			conn.conn.Close()
@@ -182,20 +182,20 @@ func (cp *ConnectionPool) ReturnConnection(conn *pooledConnection) {
 
 	// Get or create target pool
 	cp.poolsMutex.Lock()
-	targetPool, exists := cp.pools[conn.target]
+	pool, exists := cp.pools[conn.target]
 	if !exists {
-		targetPool = &targetPool{
+		pool = &targetPool{
 			target:      conn.target,
 			connections: make(chan *pooledConnection, cp.maxPoolSize),
 			maxSize:     cp.maxPoolSize,
 		}
-		cp.pools[conn.target] = targetPool
+		cp.pools[conn.target] = pool
 	}
 	cp.poolsMutex.Unlock()
 
 	// Try to return to pool
 	select {
-	case targetPool.connections <- conn:
+	case pool.connections <- conn:
 		if cp.enableDebug {
 			fmt.Printf("Pool: Returned connection to %s to pool\n", conn.target)
 		}

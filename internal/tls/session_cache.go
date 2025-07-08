@@ -23,7 +23,7 @@ type SessionCache struct {
 // SessionEntry represents a cached TLS session
 type SessionEntry struct {
 	SessionID    []byte
-	SessionState *tls.SessionState
+	SessionState *tls.ClientSessionState
 	CreatedAt    time.Time
 	LastUsed     time.Time
 	UseCount     int
@@ -90,7 +90,7 @@ func NewSessionCache(config *SessionCacheConfig) *SessionCache {
 }
 
 // Get retrieves a session from the cache (implements tls.ClientSessionCache)
-func (sc *SessionCache) Get(sessionKey string) (*tls.SessionState, bool) {
+func (sc *SessionCache) Get(sessionKey string) (*tls.ClientSessionState, bool) {
 	sc.sessionsMutex.RLock()
 	entry, exists := sc.sessions[sessionKey]
 	sc.sessionsMutex.RUnlock()
@@ -124,7 +124,7 @@ func (sc *SessionCache) Get(sessionKey string) (*tls.SessionState, bool) {
 }
 
 // Put stores a session in the cache (implements tls.ClientSessionCache)
-func (sc *SessionCache) Put(sessionKey string, sessionState *tls.SessionState) {
+func (sc *SessionCache) Put(sessionKey string, sessionState *tls.ClientSessionState) {
 	if sessionState == nil {
 		return
 	}
@@ -153,7 +153,7 @@ func (sc *SessionCache) Put(sessionKey string, sessionState *tls.SessionState) {
 }
 
 // PutWithContext stores a session with additional context information
-func (sc *SessionCache) PutWithContext(sessionKey string, sessionState *tls.SessionState, clientAddr, serverName string) {
+func (sc *SessionCache) PutWithContext(sessionKey string, sessionState *tls.ClientSessionState, clientAddr, serverName string) {
 	if sessionState == nil {
 		return
 	}
@@ -172,9 +172,10 @@ func (sc *SessionCache) PutWithContext(sessionKey string, sessionState *tls.Sess
 		ServerName:   serverName,
 	}
 
-	// Extract session ID if available
-	if sessionState.SessionTicket != nil && len(sessionState.SessionTicket) > 0 {
-		entry.SessionID = sessionState.SessionTicket[:min(len(sessionState.SessionTicket), 32)]
+	// Note: SessionTicket field was removed from SessionState in newer Go versions
+	// We'll generate a simple session ID based on the server name and timestamp
+	if serverName != "" {
+		entry.SessionID = []byte(fmt.Sprintf("%s-%d", serverName, time.Now().UnixNano()))
 	}
 
 	sc.sessionsMutex.Lock()

@@ -3,7 +3,7 @@
     "listen_addr": ":8848",
     "transparent": false,
     "explicit_port": 3129,
-    "buffer_size": 32768,
+    "buffer_size": 65536,
     "read_timeout_seconds": 30,
     "write_timeout_seconds": 30
   },
@@ -81,6 +81,48 @@
           "10.0.0.0/8"
         ]
       }
+    }
+  },
+  "performance": {
+    "connection_pool": {
+      "enabled": true,
+      "max_pool_size": 500,
+      "max_idle_time_minutes": 15,
+      "cleanup_interval_minutes": 5
+    },
+    "buffer_pool": {
+      "enable_stats": false,
+      "small_buffer_size": 16384,
+      "large_buffer_size": 65536
+    },
+    "tls_session_cache": {
+      "enabled": true,
+      "max_sessions": 50000,
+      "session_ttl_hours": 48,
+      "ticket_key_rotation_hours": 12
+    },
+    "cert_pregeneration": {
+      "enabled": true,
+      "worker_count": 4,
+      "popular_domain_count": 1000,
+      "frequency_threshold": 1,
+      "static_domains": [
+        "google.com",
+        "github.com", 
+        "httpbin.org",
+        "youtube.com",
+        "facebook.com",
+        "amazon.com",
+        "microsoft.com",
+        "apple.com"
+      ],
+      "enable_frequency_tracking": true
+    },
+    "worker_pool": {
+      "enabled": false,
+      "worker_count": 40,
+      "queue_size": 5000,
+      "job_timeout_seconds": 60
     }
   },
   "storage": {

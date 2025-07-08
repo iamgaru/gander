@@ -270,7 +270,6 @@ func (r *Relayer) HandleHTTPRelay(clientConn net.Conn, initialData []byte, info 
 
 		// Try to get connection from pool first
 		var serverConn net.Conn
-		var err error
 		
 		if r.connectionPool != nil {
 			ctx := context.Background()
@@ -364,49 +363,85 @@ func (r *Relayer) HandleHTTPSInspection(clientConn net.Conn, serverAddr string, 
 	}
 
 	// Create TLS config with session resumption
-	tlsConfig := &tls.Config{
+	tlsConfig2 := &tls.Config{
 		ServerName:         info.Domain,
 		InsecureSkipVerify: true, // We'll validate manually if needed
 	}
 	
 	// Use session cache if available
 	if r.tlsSessionCache != nil {
-		tlsConfig.ClientSessionCache = r.tlsSessionCache
+		tlsConfig2.ClientSessionCache = r.tlsSessionCache
 		// Set ticket keys for session resumption
 		ticketKeys := r.tlsSessionCache.GetTicketKeys()
 		if len(ticketKeys) > 0 {
-			tlsConfig.SetSessionTicketKeys(ticketKeys)
+			tlsConfig2.SetSessionTicketKeys(ticketKeys)
 		}
 	}
 
-	// Try to get connection from pool first, then establish TLS
-	var serverConn *tls.Conn
-	var err error
+	// For HTTPS inspection, we need TLS connections with proper domain-specific config
+	var serverConn net.Conn
+	var isPooled bool
 	
+	// Try to get a TLS connection from pool first
 	if r.connectionPool != nil {
 		ctx := context.Background()
-		rawConn, err := r.connectionPool.GetConnection(ctx, serverAddr, true)
-		if err != nil {
-			return fmt.Errorf("failed to get pooled TLS connection: %w", err)
-		}
-		// If we got a connection from pool, it should already be TLS
-		if tlsConn, ok := rawConn.(*tls.Conn); ok {
-			serverConn = tlsConn
-		} else {
-			// Upgrade raw connection to TLS
-			serverConn = tls.Client(rawConn, tlsConfig)
-		}
-	} else {
-		// Fallback to direct TLS connection
-		serverConn, err = tls.Dial("tcp", serverAddr, tlsConfig)
-		if err != nil {
-			return fmt.Errorf("failed to connect to upstream TLS server: %w", err)
+		var poolErr error
+		serverConn, poolErr = r.connectionPool.GetConnection(ctx, serverAddr, true)
+		if poolErr == nil && serverConn != nil {
+			isPooled = true
 		}
 	}
-	defer serverConn.Close()
+	
+	// If pool fails or not available, create direct TLS connection
+	if serverConn == nil {
+		var dialErr error
+		serverConn, dialErr = tls.Dial("tcp", serverAddr, tlsConfig2)
+		if dialErr != nil {
+			return fmt.Errorf("failed to connect to upstream TLS server: %w", dialErr)
+		}
+		isPooled = false
+	}
+	
+	// Ensure we have a TLS connection
+	var tlsServerConn *tls.Conn
+	if isPooled {
+		// For pooled connections, we need to check if it's already TLS
+		if tlsConn, ok := serverConn.(*tls.Conn); ok {
+			tlsServerConn = tlsConn
+		} else {
+			// If pooled connection is not TLS, we need to upgrade it
+			// This shouldn't happen with our current pool implementation, but handle it
+			serverConn.Close()
+			var tlsErr error
+			tlsServerConn, tlsErr = tls.Dial("tcp", serverAddr, tlsConfig2)
+			if tlsErr != nil {
+				return fmt.Errorf("failed to connect to upstream TLS server: %w", tlsErr)
+			}
+			serverConn = tlsServerConn
+			isPooled = false
+		}
+	} else {
+		// For direct connections, it should already be TLS
+		if tlsConn, ok := serverConn.(*tls.Conn); ok {
+			tlsServerConn = tlsConn
+		} else {
+			return fmt.Errorf("expected TLS connection but got non-TLS connection")
+		}
+	}
+	
+	// Close connection appropriately - pooled connections handle their own lifecycle
+	defer func() {
+		if isPooled {
+			// For pooled connections, call Close() to potentially return to pool
+			serverConn.Close()
+		} else {
+			// For direct connections, close immediately
+			serverConn.Close()
+		}
+	}()
 
 	// Handle as HTTP over the TLS connections
-	return r.handleHTTPSTraffic(tlsClientConn, serverConn, info)
+	return r.handleHTTPSTraffic(tlsClientConn, tlsServerConn, info)
 }
 
 // handleHTTPSTraffic handles HTTP traffic over TLS connections

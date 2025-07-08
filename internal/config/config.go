@@ -406,9 +406,8 @@ func (c *Config) setPerformanceDefaults() {
 	}
 
 	// Worker pool defaults
-	if !c.Performance.WorkerPool.Enabled {
-		c.Performance.WorkerPool.Enabled = true // Enable by default
-	}
+	// Note: Worker pool is disabled by default for better performance
+	// Only enable if explicitly set to true in config
 	if c.Performance.WorkerPool.WorkerCount == 0 {
 		c.Performance.WorkerPool.WorkerCount = 0 // 0 means auto-detect
 	}
