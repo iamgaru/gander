@@ -58,6 +58,20 @@ type PoolStats struct {
 	ConnectionsClosed  int64
 }
 
+// PoolStatsSnapshot represents a snapshot of pool statistics without mutex
+type PoolStatsSnapshot struct {
+	TotalPools         int
+	TotalConnections   int
+	ActiveConnections  int
+	IdleConnections    int
+	PoolHits           int64
+	PoolMisses         int64
+	ConnectionsCreated int64
+	ConnectionsReused  int64
+	ConnectionsExpired int64
+	ConnectionsClosed  int64
+}
+
 // PoolConfig contains connection pool configuration
 type PoolConfig struct {
 	MaxPoolSize     int
@@ -369,7 +383,7 @@ cleanup:
 }
 
 // GetStats returns current pool statistics
-func (cp *ConnectionPool) GetStats() PoolStats {
+func (cp *ConnectionPool) GetStats() PoolStatsSnapshot {
 	cp.stats.mutex.RLock()
 	defer cp.stats.mutex.RUnlock()
 
@@ -384,8 +398,8 @@ func (cp *ConnectionPool) GetStats() PoolStats {
 	}
 	cp.poolsMutex.RUnlock()
 
-	// Create a copy without copying the mutex
-	stats := PoolStats{
+	// Create a snapshot without copying the mutex
+	stats := PoolStatsSnapshot{
 		TotalPools:         totalPools,
 		TotalConnections:   totalConns,
 		ActiveConnections:  totalConns - idleConns,
