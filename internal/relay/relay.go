@@ -437,6 +437,7 @@ func (r *Relayer) HandleHTTPSInspection(clientConn net.Conn, serverAddr string, 
 // handleHTTPSTraffic handles HTTP traffic over TLS connections
 func (r *Relayer) handleHTTPSTraffic(clientConn, serverConn *tls.Conn, info *ConnectionInfo) error {
 	clientReader := bufio.NewReader(clientConn)
+	serverReader := bufio.NewReader(serverConn)
 
 	for {
 		// Read HTTP request from client
@@ -460,8 +461,7 @@ func (r *Relayer) handleHTTPSTraffic(clientConn, serverConn *tls.Conn, info *Con
 			return fmt.Errorf("failed to write HTTPS request to server: %w", err)
 		}
 
-		// Read response from server
-		serverReader := bufio.NewReader(serverConn)
+		// Read response from server using persistent reader
 		resp, err := http.ReadResponse(serverReader, req)
 		if err != nil {
 			return fmt.Errorf("failed to read HTTPS response from server: %w", err)
