@@ -1,0 +1,57 @@
+{
+  "_WARNING": "THIS IS A TEMPLATE FILE - Copy to config.json and customize",
+  "_NOTICE": "Replace all {{PLACEHOLDER}} values with your environment settings",
+  "_SECURITY": "Review all settings, especially listen_addr and domain lists",
+  
+  "proxy": {
+    "listen_addr": "{{LISTEN_ADDR}}",
+    "transparent": {{TRANSPARENT_MODE}},
+    "explicit_port": {{EXPLICIT_PORT}},
+    "buffer_size": {{BUFFER_SIZE}},
+    "read_timeout_seconds": {{READ_TIMEOUT}},
+    "write_timeout_seconds": {{WRITE_TIMEOUT}}
+  },
+  "logging": {
+    "log_file": "{{LOG_FILE}}",
+    "capture_dir": "{{CAPTURE_DIR}}",
+    "max_file_size_mb": {{MAX_FILE_SIZE}},
+    "enable_debug": {{DEBUG_MODE}}
+  },
+  "rules": {
+    "inspect_domains": [
+      "{{DOMAIN_1}}",
+      "{{DOMAIN_2}}"
+    ],
+    "inspect_source_ips": [
+      "{{IP_RANGE_1}}",
+      "{{IP_RANGE_2}}"
+    ],
+    "bypass_domains": [
+      "*.apple.com",
+      "*.cloudflare.com",
+      "*.googleapis.com"
+    ],
+    "bypass_source_ips": [
+      "{{BYPASS_IP_1}}"
+    ]
+  },
+  "tls": {
+    "cert_file": "{{CERT_FILE}}",
+    "key_file": "{{KEY_FILE}}",
+    "ca_file": "{{CA_FILE}}",
+    "ca_key_file": "{{CA_KEY_FILE}}",
+    "cert_dir": "{{CERT_DIR}}",
+    "auto_generate": {{AUTO_GENERATE}},
+    "valid_days": {{VALID_DAYS}},
+    "upstream_cert_sniff": {{UPSTREAM_SNIFF}},
+    "cert_profile": "{{CERT_PROFILE}}",
+    "custom_details": {
+      "organization": ["{{ORGANIZATION}}"],
+      "organizational_unit": ["{{ORG_UNIT}}"],
+      "country": ["{{COUNTRY}}"],
+      "province": ["{{PROVINCE}}"],
+      "locality": ["{{LOCALITY}}"],
+      "common_name": "{{COMMON_NAME}}"
+    }
+  }
+}

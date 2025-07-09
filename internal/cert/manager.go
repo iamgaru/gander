@@ -14,11 +14,16 @@ import (
 	"os"
 	"strings"
 	"time"
+
+	tlsopt "github.com/iamgaru/gander/internal/tls"
 )
 
 // DefaultCertManager implements the CertificateProvider interface
 type DefaultCertManager struct {
 	*CertificateManager
+	tlsSessionCache  *tlsopt.SessionCache
+	tlsConfigBuilder *tlsopt.TLSConfigBuilder
+	smartTLS         *tlsopt.SmartTLSConfig
 }
 
 // NewCertificateManager creates a new certificate manager
@@ -29,7 +34,14 @@ func NewCertificateManager(enableDebug bool) *DefaultCertManager {
 			enableDebug: enableDebug,
 			stats:       NewCertStats(),
 		},
+		smartTLS: tlsopt.NewSmartTLSConfig(enableDebug),
 	}
+}
+
+// SetTLSSessionCache sets the TLS session cache for optimized TLS connections
+func (cm *DefaultCertManager) SetTLSSessionCache(cache *tlsopt.SessionCache) {
+	cm.tlsSessionCache = cache
+	cm.tlsConfigBuilder = tlsopt.NewTLSConfigBuilder(cache, cm.enableDebug)
 }
 
 // Initialize initializes the certificate manager
@@ -197,6 +209,32 @@ func (cm *DefaultCertManager) GetTLSCertificate(domain string) (*tls.Certificate
 	return cert.TLSCert, nil
 }
 
+// GetOptimizedTLSConfig creates an optimized TLS config for the given domain
+func (cm *DefaultCertManager) GetOptimizedTLSConfig(domain string, isClient bool) (*tls.Config, error) {
+	if cm.tlsConfigBuilder == nil {
+		// Fallback to basic config
+		cert, err := cm.GetTLSCertificate(domain)
+		if err != nil {
+			return nil, err
+		}
+
+		return &tls.Config{
+			Certificates: []tls.Certificate{*cert},
+			ServerName:   domain,
+		}, nil
+	}
+
+	if isClient {
+		return cm.tlsConfigBuilder.BuildClientConfig(domain, true), nil
+	} else {
+		cert, err := cm.GetTLSCertificate(domain)
+		if err != nil {
+			return nil, err
+		}
+		return cm.tlsConfigBuilder.BuildServerConfig([]tls.Certificate{*cert}), nil
+	}
+}
+
 // GenerateCertificate generates a new certificate for the domain
 func (cm *DefaultCertManager) GenerateCertificate(domain string, template *UpstreamCertInfo) (*Certificate, error) {
 	startTime := time.Now()
@@ -342,13 +380,11 @@ func (cm *DefaultCertManager) GenerateCertificate(domain string, template *Upstr
 
 // SniffUpstreamCert retrieves certificate information from upstream server
 func (cm *DefaultCertManager) SniffUpstreamCert(domain string, port int) (*UpstreamCertInfo, error) {
-	// Connect to upstream server
-	conn, err := tls.Dial("tcp", fmt.Sprintf("%s:%d", domain, port), &tls.Config{
-		InsecureSkipVerify: true,
-		ServerName:         domain,
-	})
+	// Use smart TLS config for certificate sniffing (allows insecure connections for analysis)
+	address := fmt.Sprintf("%s:%d", domain, port)
+	conn, err := cm.smartTLS.ConnectWithSmartVerification("tcp", address, tlsopt.TLSContextSniffing)
 	if err != nil {
-		return nil, fmt.Errorf("failed to connect to upstream: %w", err)
+		return nil, fmt.Errorf("failed to connect to upstream for certificate sniffing: %w", err)
 	}
 	defer conn.Close()
 

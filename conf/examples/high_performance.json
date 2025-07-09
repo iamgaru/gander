@@ -1,0 +1,93 @@
+{
+  "proxy": {
+    "listen_addr": ":8848",
+    "buffer_size": 131072,
+    "read_timeout_seconds": 90,
+    "write_timeout_seconds": 90,
+    "max_connections": 50000,
+    "worker_pool_size": 0,
+    "enable_keepalive": true,
+    "keepalive_timeout_seconds": 600
+  },
+  "logging": {
+    "log_file": "gander.log",
+    "capture_dir": "captures",
+    "max_file_size_mb": 500,
+    "enable_debug": false
+  },
+  "tls": {
+    "cert_file": "certs/server.crt",
+    "key_file": "certs/server.key", 
+    "ca_file": "certs/ca.crt",
+    "ca_key_file": "certs/ca.key",
+    "cert_dir": "certs",
+    "auto_generate": true,
+    "valid_days": 365,
+    "upstream_cert_sniff": true
+  },
+  "performance": {
+    "connection_pool": {
+      "enabled": true,
+      "max_pool_size": 1000,
+      "max_idle_time_minutes": 10,
+      "cleanup_interval_minutes": 2
+    },
+    "buffer_pool": {
+      "enable_stats": false,
+      "small_buffer_size": 8192,
+      "large_buffer_size": 131072
+    },
+    "tls_session_cache": {
+      "enabled": true,
+      "max_sessions": 50000,
+      "session_ttl_hours": 48,
+      "ticket_key_rotation_hours": 2
+    },
+    "cert_pregeneration": {
+      "enabled": true,
+      "worker_count": 4,
+      "popular_domain_count": 500,
+      "frequency_threshold": 3,
+      "static_domains": [
+        "google.com",
+        "facebook.com", 
+        "amazon.com",
+        "microsoft.com",
+        "apple.com",
+        "netflix.com",
+        "youtube.com",
+        "twitter.com",
+        "linkedin.com",
+        "github.com"
+      ],
+      "enable_frequency_tracking": true
+    },
+    "worker_pool": {
+      "enabled": true,
+      "worker_count": 0,
+      "queue_size": 10000,
+      "job_timeout_seconds": 60
+    }
+  },
+  "filters": {
+    "enabled_providers": ["domain", "ip"],
+    "provider_configs": {}
+  },
+  "rules": {
+    "inspect_domains": ["*"],
+    "inspect_source_ips": [],
+    "bypass_domains": [
+      "*.windows.com",
+      "*.microsoft.com",
+      "*.apple.com",
+      "*.icloud.com",
+      "*.adobe.com",
+      "*.symantec.com",
+      "*.mcafee.com"
+    ],
+    "bypass_source_ips": [
+      "127.0.0.1",
+      "::1"
+    ]
+  }
+}

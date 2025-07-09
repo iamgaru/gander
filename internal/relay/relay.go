@@ -2,6 +2,7 @@ package relay
 
 import (
 	"bufio"
+	"context"
 	"crypto/tls"
 	"fmt"
 	"io"
@@ -13,6 +14,8 @@ import (
 	"time"
 
 	"github.com/iamgaru/gander/internal/cert"
+	"github.com/iamgaru/gander/internal/pool"
+	tlsopt "github.com/iamgaru/gander/internal/tls"
 )
 
 const (
@@ -73,13 +76,16 @@ func (bp *BufferPool) Put(buf []byte) {
 
 // Relayer handles different types of data relaying
 type Relayer struct {
-	bufferPool     *BufferPool
-	readTimeout    time.Duration
-	writeTimeout   time.Duration
-	enableDebug    bool
-	certManager    cert.CertificateProvider
-	captureHandler CaptureHandler
-	stats          *RelayStats
+	bufferPool      *pool.EnhancedBufferPool
+	connectionPool  *pool.ConnectionPool
+	tlsSessionCache *tlsopt.SessionCache
+	readTimeout     time.Duration
+	writeTimeout    time.Duration
+	enableDebug     bool
+	certManager     cert.CertificateProvider
+	captureHandler  CaptureHandler
+	stats           *RelayStats
+	smartTLS        *tlsopt.SmartTLSConfig
 }
 
 // RelayStats tracks relay performance statistics
@@ -103,14 +109,31 @@ type CaptureHandler interface {
 	CaptureHTTPResponse(resp *http.Response, clientIP string) error
 }
 
-// NewRelayer creates a new relayer
-func NewRelayer(bufferPool *BufferPool, readTimeout, writeTimeout time.Duration, enableDebug bool) *Relayer {
+// NewEnhancedRelayer creates a new enhanced relayer with connection pooling
+func NewEnhancedRelayer(bufferPool *pool.EnhancedBufferPool, connectionPool *pool.ConnectionPool, readTimeout, writeTimeout time.Duration, enableDebug bool) *Relayer {
 	return &Relayer{
-		bufferPool:   bufferPool,
+		bufferPool:     bufferPool,
+		connectionPool: connectionPool,
+		readTimeout:    readTimeout,
+		writeTimeout:   writeTimeout,
+		enableDebug:    enableDebug,
+		stats:          NewRelayStats(),
+		smartTLS:       tlsopt.NewSmartTLSConfig(enableDebug),
+	}
+}
+
+// NewRelayer creates a new relayer (legacy compatibility)
+func NewRelayer(bufferPool *BufferPool, readTimeout, writeTimeout time.Duration, enableDebug bool) *Relayer {
+	// Convert old buffer pool to enhanced buffer pool for compatibility
+	enhancedPool := pool.NewEnhancedBufferPool(false)
+
+	return &Relayer{
+		bufferPool:   enhancedPool,
 		readTimeout:  readTimeout,
 		writeTimeout: writeTimeout,
 		enableDebug:  enableDebug,
 		stats:        NewRelayStats(),
+		smartTLS:     tlsopt.NewSmartTLSConfig(enableDebug),
 	}
 }
 
@@ -122,6 +145,11 @@ func (r *Relayer) SetCertificateManager(certManager cert.CertificateProvider) {
 // SetCaptureHandler sets the capture handler
 func (r *Relayer) SetCaptureHandler(handler CaptureHandler) {
 	r.captureHandler = handler
+}
+
+// SetTLSSessionCache sets the TLS session cache
+func (r *Relayer) SetTLSSessionCache(cache *tlsopt.SessionCache) {
+	r.tlsSessionCache = cache
 }
 
 // SetDebug sets the debug flag
@@ -141,8 +169,18 @@ func (r *Relayer) HandleFastRelay(clientConn net.Conn, serverAddr string, info *
 		r.stats.UpdateLatency(latency)
 	}()
 
-	// Connect to upstream server
-	serverConn, err := net.DialTimeout("tcp", serverAddr, 10*time.Second)
+	// Try to get connection from pool first
+	var serverConn net.Conn
+	var err error
+
+	if r.connectionPool != nil {
+		ctx := context.Background()
+		serverConn, err = r.connectionPool.GetConnection(ctx, serverAddr, false)
+	} else {
+		// Fallback to direct connection
+		serverConn, err = net.DialTimeout("tcp", serverAddr, 10*time.Second)
+	}
+
 	if err != nil {
 		return fmt.Errorf("failed to connect to server: %w", err)
 	}
@@ -162,8 +200,18 @@ func (r *Relayer) HandleTransparentRelay(clientConn net.Conn, initialData []byte
 	r.stats.IncrementTransparent()
 	defer r.stats.DecrementActive()
 
-	// Connect to upstream server
-	serverConn, err := net.DialTimeout("tcp", info.ServerAddr, 10*time.Second)
+	// Try to get connection from pool first
+	var serverConn net.Conn
+	var err error
+
+	if r.connectionPool != nil {
+		ctx := context.Background()
+		serverConn, err = r.connectionPool.GetConnection(ctx, info.ServerAddr, false)
+	} else {
+		// Fallback to direct connection
+		serverConn, err = net.DialTimeout("tcp", info.ServerAddr, 10*time.Second)
+	}
+
 	if err != nil {
 		return fmt.Errorf("failed to connect to server: %w", err)
 	}
@@ -223,8 +271,17 @@ func (r *Relayer) HandleHTTPRelay(clientConn net.Conn, initialData []byte, info 
 			}
 		}
 
-		// Connect to upstream server
-		serverConn, err := net.DialTimeout("tcp", info.ServerAddr, 10*time.Second)
+		// Try to get connection from pool first
+		var serverConn net.Conn
+
+		if r.connectionPool != nil {
+			ctx := context.Background()
+			serverConn, err = r.connectionPool.GetConnection(ctx, info.ServerAddr, false)
+		} else {
+			// Fallback to direct connection
+			serverConn, err = net.DialTimeout("tcp", info.ServerAddr, 10*time.Second)
+		}
+
 		if err != nil {
 			return fmt.Errorf("failed to connect to server: %w", err)
 		}
@@ -308,18 +365,73 @@ func (r *Relayer) HandleHTTPSInspection(clientConn net.Conn, serverAddr string, 
 			clientConn.RemoteAddr(), serverAddr, info.Domain)
 	}
 
-	// Connect to upstream server with TLS
-	serverConn, err := tls.Dial("tcp", serverAddr, &tls.Config{
-		ServerName:         info.Domain,
-		InsecureSkipVerify: true, // We'll validate manually if needed
-	})
-	if err != nil {
-		return fmt.Errorf("failed to connect to upstream TLS server: %w", err)
+	// Create smart TLS config with session resumption
+	tlsConfig2 := r.smartTLS.CreateTLSConfigWithSessionCache(info.Domain, tlsopt.TLSContextRelay, r.tlsSessionCache)
+
+	// Set ticket keys for session resumption if session cache is available
+	if r.tlsSessionCache != nil {
+		ticketKeys := r.tlsSessionCache.GetTicketKeys()
+		if len(ticketKeys) > 0 {
+			tlsConfig2.SetSessionTicketKeys(ticketKeys)
+		}
 	}
+
+	// For HTTPS inspection, we need TLS connections with proper domain-specific config
+	var serverConn net.Conn
+	var isPooled bool
+
+	// Try to get a TLS connection from pool first
+	if r.connectionPool != nil {
+		ctx := context.Background()
+		var poolErr error
+		serverConn, poolErr = r.connectionPool.GetConnection(ctx, serverAddr, true)
+		if poolErr == nil && serverConn != nil {
+			isPooled = true
+		}
+	}
+
+	// If pool fails or not available, create direct TLS connection
+	if serverConn == nil {
+		var dialErr error
+		serverConn, dialErr = tls.Dial("tcp", serverAddr, tlsConfig2)
+		if dialErr != nil {
+			return fmt.Errorf("failed to connect to upstream TLS server: %w", dialErr)
+		}
+		isPooled = false
+	}
+
+	// Ensure we have a TLS connection
+	var tlsServerConn *tls.Conn
+	if isPooled {
+		// For pooled connections, we need to check if it's already TLS
+		if tlsConn, ok := serverConn.(*tls.Conn); ok {
+			tlsServerConn = tlsConn
+		} else {
+			// If pooled connection is not TLS, we need to upgrade it
+			// This shouldn't happen with our current pool implementation, but handle it
+			serverConn.Close()
+			var tlsErr error
+			tlsServerConn, tlsErr = tls.Dial("tcp", serverAddr, tlsConfig2)
+			if tlsErr != nil {
+				return fmt.Errorf("failed to connect to upstream TLS server: %w", tlsErr)
+			}
+			serverConn = tlsServerConn
+			isPooled = false
+		}
+	} else {
+		// For direct connections, it should already be TLS
+		if tlsConn, ok := serverConn.(*tls.Conn); ok {
+			tlsServerConn = tlsConn
+		} else {
+			return fmt.Errorf("expected TLS connection but got non-TLS connection")
+		}
+	}
+
+	// Close connection appropriately - both pooled and direct connections use Close()
 	defer serverConn.Close()
 
 	// Handle as HTTP over the TLS connections
-	return r.handleHTTPSTraffic(tlsClientConn, serverConn, info)
+	return r.handleHTTPSTraffic(tlsClientConn, tlsServerConn, info)
 }
 
 // handleHTTPSTraffic handles HTTP traffic over TLS connections
@@ -432,8 +544,10 @@ func (r *Relayer) bidirectionalRelay(clientConn, serverConn net.Conn, info *Conn
 
 // copyWithBuffer performs buffered copy between connections
 func (r *Relayer) copyWithBuffer(dst io.Writer, src io.Reader) (int64, error) {
-	buf := r.bufferPool.Get()
-	defer r.bufferPool.Put(buf)
+	pooledBuffer := r.bufferPool.NewPooledBuffer(pool.LargeBuffer)
+	defer pooledBuffer.Release()
+
+	buf := pooledBuffer.Bytes()
 
 	var written int64
 	for {

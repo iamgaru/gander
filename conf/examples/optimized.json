@@ -1,0 +1,85 @@
+{
+  "proxy": {
+    "listen_addr": ":8848",
+    "buffer_size": 65536,
+    "read_timeout_seconds": 60,
+    "write_timeout_seconds": 60,
+    "max_connections": 10000,
+    "worker_pool_size": 0,
+    "enable_keepalive": true,
+    "keepalive_timeout_seconds": 300
+  },
+  "logging": {
+    "log_file": "gander.log",
+    "capture_dir": "captures",
+    "max_file_size_mb": 100,
+    "enable_debug": false
+  },
+  "tls": {
+    "cert_file": "certs/server.crt",
+    "key_file": "certs/server.key",
+    "ca_file": "certs/ca.crt",
+    "ca_key_file": "certs/ca.key",
+    "cert_dir": "certs",
+    "auto_generate": true,
+    "valid_days": 365,
+    "upstream_cert_sniff": true
+  },
+  "performance": {
+    "connection_pool": {
+      "enabled": true,
+      "max_pool_size": 200,
+      "max_idle_time_minutes": 5,
+      "cleanup_interval_minutes": 1
+    },
+    "buffer_pool": {
+      "enable_stats": true,
+      "small_buffer_size": 4096,
+      "large_buffer_size": 65536
+    },
+    "tls_session_cache": {
+      "enabled": true,
+      "max_sessions": 10000,
+      "session_ttl_hours": 24,
+      "ticket_key_rotation_hours": 1
+    },
+    "cert_pregeneration": {
+      "enabled": false,
+      "worker_count": 2,
+      "popular_domain_count": 100,
+      "frequency_threshold": 5,
+      "static_domains": [
+        "google.com",
+        "facebook.com",
+        "amazon.com",
+        "microsoft.com",
+        "apple.com"
+      ],
+      "enable_frequency_tracking": true
+    },
+    "worker_pool": {
+      "enabled": true,
+      "worker_count": 0,
+      "queue_size": 2000,
+      "job_timeout_seconds": 30
+    }
+  },
+  "filters": {
+    "enabled_providers": ["domain", "ip"],
+    "provider_configs": {}
+  },
+  "rules": {
+    "inspect_domains": ["*"],
+    "inspect_source_ips": [],
+    "bypass_domains": [
+      "*.microsoft.com",
+      "*.windows.com",
+      "*.apple.com",
+      "*.icloud.com"
+    ],
+    "bypass_source_ips": [
+      "127.0.0.1",
+      "::1"
+    ]
+  }
+}

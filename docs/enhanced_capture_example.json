@@ -1,0 +1,147 @@
+{
+  "id": "20250628_165020_127001_49258_post_dynamitewebui_idv",
+  "correlation_id": "127.0.0.1_49258_POST__u_0___DynamiteWebUi_idv_",
+  "session_id": "sess_20250628_165000_127001",
+  "timestamp": "2025-06-28T16:50:20.093755+10:00",
+  
+  "identity": {
+    "primary_identity": {
+      "type": "ip",
+      "id": "127.0.0.1",
+      "display_name": "127.0.0.1 (Local Network)",
+      "confidence": 0.95,
+      "source": "ip_mac",
+      "resolved_at": "2025-06-28T16:50:20.093755+10:00",
+      "ttl": "10m0s",
+      "metadata": {
+        "ip_metadata": {
+          "network": "127.0.0.0/8",
+          "is_private": false,
+          "is_loopback": true,
+          "is_trusted": true,
+          "organization": "Loopback",
+          "last_updated": "2025-06-28T16:50:20.093755+10:00"
+        },
+        "mac_address": "02:00:4C:4F:4F:50",
+        "mac_vendor": "Docker",
+        "interface": "lo0",
+        "last_seen": "2025-06-28T16:50:19.000000+10:00",
+        "is_private": false,
+        "is_loopback": true,
+        "is_multicast": false,
+        "is_trusted": true
+      }
+    },
+    "all_identities": [
+      {
+        "type": "ip",
+        "id": "127.0.0.1",
+        "display_name": "127.0.0.1 (Local Network)",
+        "confidence": 0.95,
+        "source": "ip_mac",
+        "resolved_at": "2025-06-28T16:50:20.093755+10:00"
+      }
+    ],
+    "client_ip": "127.0.0.1",
+    "resolved_at": "2025-06-28T16:50:20.093755+10:00"
+  },
+  
+  "connection": {
+    "client_ip": "127.0.0.1",
+    "client_port": 49258,
+    "server_ip": "142.250.191.110", 
+    "server_port": 443,
+    "protocol": "HTTPS",
+    "tls_version": "TLS 1.3",
+    "cipher": "TLS_AES_256_GCM_SHA384",
+    "start_time": "2025-06-28T16:50:17.000Z",
+    "domain": "chat.google.com",
+    "sni": "chat.google.com"
+  },
+  
+  "request": {
+    "method": "POST",
+    "url": "/u/0/_/DynamiteWebUi/idv/",
+    "path": "/u/0/_/DynamiteWebUi/idv/",
+    "query": "",
+    "http_version": "HTTP/1.1",
+    "headers": {
+      "Accept": "*/*",
+      "Accept-Encoding": "gzip, deflate, br",
+      "Accept-Language": "en-US,en;q=0.9",
+      "Content-Type": "application/x-protobuf",
+      "Content-Length": "523",
+      "Origin": "https://chat.google.com",
+      "Referer": "https://chat.google.com/",
+      "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
+      "X-Requested-With": "XMLHttpRequest",
+      "Authorization": "Bearer ya29.a0AfH6SMC...",
+      "X-Goog-Request-Source": "DynamiteWebUi"
+    },
+    "body": "[binary protobuf data - 523 bytes]",
+    "body_size": 523,
+    "content_type": "application/x-protobuf",
+    "user_agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
+    "referer": "https://chat.google.com/"
+  },
+  
+  "response": {
+    "status_code": 200,
+    "status_text": "OK",
+    "headers": {
+      "Content-Type": "application/x-protobuf",
+      "Content-Length": "1247",
+      "Content-Encoding": "gzip",
+      "Cache-Control": "private, no-cache, no-store, max-age=0",
+      "Server": "ESF",
+      "Vary": "Accept-Encoding",
+      "X-Content-Type-Options": "nosniff",
+      "X-Frame-Options": "SAMEORIGIN",
+      "X-XSS-Protection": "0",
+      "Date": "Sat, 28 Jun 2025 06:50:20 GMT"
+    },
+    "body": "[binary protobuf response - 1247 bytes compressed]",
+    "body_size": 1247,
+    "content_type": "application/x-protobuf",
+    "content_length": 1247,
+    "processing_time_ms": "255ms"
+  },
+  
+  "resource_type": "api",
+  "category": "google_chat_api",
+  "tags": [
+    "api",
+    "encrypted",
+    "identified",
+    "trusted",
+    "success",
+    "fast",
+    "google",
+    "chat",
+    "protobuf"
+  ],
+  "metadata": {
+    "tls_version": "TLS 1.3",
+    "identity_type": "ip",
+    "identity_confidence": 0.95,
+    "is_ajax": true,
+    "is_authenticated": true,
+    "auth_type": "Bearer",
+    "content_encoding": "gzip",
+    "is_protobuf": true,
+    "service": "DynamiteWebUi",
+    "google_service": "chat"
+  },
+  
+  "duration_ms": "255ms",
+  "start_time": "2025-06-28T16:50:17.000Z",
+  "end_time": "2025-06-28T16:50:17.255Z",
+  
+  "capture_settings": {
+    "capture_body": true,
+    "max_body_size": 1048576,
+    "capture_headers": true,
+    "inspection_level": "full",
+    "filter_applied": "google_domains"
+  }
+} 

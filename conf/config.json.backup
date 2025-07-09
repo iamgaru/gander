@@ -16,7 +16,7 @@
   "rules": {
     "inspect_domains": [
       "example.com",
-      "api.example.com", 
+      "api.example.com",
       "test.local",
       "*.suspicious.com",
       "*.evil.com",
@@ -53,10 +53,43 @@
     "upstream_cert_sniff": true,
     "custom_details": {
       "common_name": "Gamu Safe Browsing",
-      "organization": ["Gamu Security"],
-      "country": ["US"],
-      "province": ["California"],
-      "locality": ["San Francisco"]
+      "organization": [
+        "Gamu Security"
+      ],
+      "country": [
+        "US"
+      ],
+      "province": [
+        "California"
+      ],
+      "locality": [
+        "San Francisco"
+      ]
     }
+  },
+  "identity": {
+    "enabled": true,
+    "enabled_providers": [
+      "ip_mac"
+    ],
+    "cache_ttl": "1h",
+    "provider_configs": {
+      "ip_mac": {
+        "arp_scan_interval": "5m",
+        "trusted_networks": [
+          "192.168.0.0/16",
+          "10.0.0.0/8"
+        ]
+      }
+    }
+  },
+  "storage": {
+    "compression_enabled": true,
+    "compression_format": "gzip",
+    "rolling_enabled": true,
+    "max_file_size": 52428800,
+    "capture_level": "basic",
+    "retention_period": "720h",
+    "organization_scheme": "domain"
   }
 }

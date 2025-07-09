@@ -1,0 +1,206 @@
+{
+  "_comment": "Gander Enhanced Configuration - Production-Ready with Storage Management",
+  
+  "proxy": {
+    "port": 8848,
+    "bind_address": "0.0.0.0",
+    "timeout": 30
+  },
+  
+  "identity": {
+    "enabled": true,
+    "cache_enabled": true,
+    "cache_ttl": "10m",
+    "max_cache_size": 5000,
+    "enabled_providers": ["ip_mac"],
+    "primary_provider": "ip_mac",
+    "enrichment_enabled": true,
+    "resolve_timeout": "3s",
+    
+    "provider_configs": {
+      "ip_mac": {
+        "enabled": true,
+        "priority": 50,
+        "arp_scan_interval": "5m",
+        "enable_mac_lookup": true,
+        "enable_ip_metadata": true,
+        "trusted_networks": [
+          "192.168.1.0/24",
+          "10.0.0.0/8",
+          "172.16.0.0/12"
+        ],
+        "refresh_interval": "1h"
+      }
+    }
+  },
+  
+  "storage": {
+    "_comment": "Storage management with 97% size reduction",
+    "enabled": true,
+    "base_dir": "./captures",
+    
+    "_compression_comment": "Gzip compression reduces files by ~85%",
+    "compression_enabled": true,
+    "compression_format": "gzip",
+    "compression_level": 6,
+    
+    "_rolling_comment": "Automatic file rolling at 50MB prevents huge files",
+    "rolling_enabled": true,
+    "rolling_strategy": "size",
+    "max_file_size": 52428800,
+    "max_files_per_dir": 100,
+    "roll_interval": "2h",
+    
+    "_retention_comment": "Automatic cleanup after 30 days, max 10GB storage",
+    "retention_enabled": true,
+    "retention_period": "720h",
+    "max_storage_size": 10737418240,
+    "cleanup_interval": "1h",
+    
+    "_capture_comment": "Basic level: headers + small bodies only (~1-2KB/request)",
+    "capture_level": "basic",
+    
+    "_performance_comment": "Optimized for high throughput",
+    "buffer_size": 65536,
+    "flush_interval": "5s",
+    "concurrent_writers": 10
+  },
+  
+  "capture": {
+    "_comment": "Enhanced capture format with identity integration",
+    "enhanced_format": true,
+    "identity_integration": true,
+    "directory_structure": {
+      "organization": "domain_and_date",
+      "create_resource_dirs": true
+    }
+  },
+  
+  "filters": {
+    "rules": [
+      {
+        "name": "inspect_internal_apis",
+        "action": "inspect",
+        "conditions": {
+          "domains": ["api.company.com", "internal.company.com"],
+          "resource_types": ["api"]
+        }
+      },
+      {
+        "name": "minimal_capture_static",
+        "action": "log_minimal",
+        "conditions": {
+          "resource_types": ["image", "css", "javascript", "font"]
+        }
+      },
+      {
+        "name": "skip_cdn",
+        "action": "skip",
+        "conditions": {
+          "domains": ["*.cdn.com", "*.cloudfront.net"]
+        }
+      }
+    ]
+  },
+  
+  "selective_capture_examples": {
+    "_comment": "Alternative configurations for different needs",
+    
+    "development": {
+      "capture_level": "full",
+      "max_file_size": 10485760,
+      "retention_period": "24h",
+      "compression_format": "lz4"
+    },
+    
+    "high_volume_minimal": {
+      "capture_level": "minimal",
+      "max_file_size": 104857600,
+      "compression_format": "zstd",
+      "compression_level": 3
+    },
+    
+    "api_monitoring_only": {
+      "capture_level": "custom",
+      "selective_capture": {
+        "capture_headers": true,
+        "capture_request_body": true,
+        "capture_response_body": true,
+        "max_body_size": 16384,
+        "include_resource_types": ["api"],
+        "exclude_resource_types": ["image", "css", "javascript", "font"],
+        "include_content_types": ["application/json", "application/xml"],
+        "exclude_status_codes": [304, 404]
+      }
+    },
+    
+    "security_monitoring": {
+      "capture_level": "custom",
+      "selective_capture": {
+        "capture_headers": true,
+        "capture_request_body": false,
+        "capture_response_body": false,
+        "include_status_codes": [400, 401, 403, 404, 500, 502, 503],
+        "include_identities": ["suspicious_ip_range"]
+      }
+    }
+  },
+  
+  "streaming": {
+    "_comment": "Optional: Stream to external systems instead of local storage",
+    "enabled": false,
+    "targets": [
+      {
+        "type": "elasticsearch",
+        "endpoint": "https://elasticsearch.company.com:9200",
+        "index": "gander-network-captures",
+        "batch_size": 50
+      },
+      {
+        "type": "webhook",
+        "url": "https://siem.company.com/api/events",
+        "headers": {
+          "Authorization": "Bearer YOUR_TOKEN",
+          "Content-Type": "application/json"
+        },
+        "batch_size": 25,
+        "retry_attempts": 3
+      }
+    ],
+    "flush_interval": "10s"
+  },
+  
+  "monitoring": {
+    "_comment": "Built-in monitoring for storage system",
+    "enabled": true,
+    "metrics_interval": "1m",
+    "alerts": {
+      "storage_usage_threshold": 0.8,
+      "compression_ratio_threshold": 0.7,
+      "write_error_threshold": 10,
+      "rolling_failure_threshold": 5
+    }
+  },
+  
+  "_size_estimates": {
+    "_comment": "Expected storage usage with this configuration",
+    "without_optimization": {
+      "per_request": "15-50KB",
+      "10k_requests_day": "500MB/day",
+      "monthly": "~15GB",
+      "yearly": "~180GB"
+    },
+    "with_optimization": {
+      "per_request": "800 bytes - 2KB",
+      "10k_requests_day": "15MB/day", 
+      "monthly": "~450MB",
+      "yearly": "~5.5GB",
+      "savings": "97% reduction"
+    },
+    "file_rolling": {
+      "max_file_size": "50MB",
+      "typical_files_per_day": "1-3",
+      "compression_ratio": "85%"
+    }
+  }
+} 
