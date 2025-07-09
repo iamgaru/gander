@@ -126,7 +126,7 @@ func NewEnhancedRelayer(bufferPool *pool.EnhancedBufferPool, connectionPool *poo
 func NewRelayer(bufferPool *BufferPool, readTimeout, writeTimeout time.Duration, enableDebug bool) *Relayer {
 	// Convert old buffer pool to enhanced buffer pool for compatibility
 	enhancedPool := pool.NewEnhancedBufferPool(false)
-	
+
 	return &Relayer{
 		bufferPool:   enhancedPool,
 		readTimeout:  readTimeout,
@@ -172,7 +172,7 @@ func (r *Relayer) HandleFastRelay(clientConn net.Conn, serverAddr string, info *
 	// Try to get connection from pool first
 	var serverConn net.Conn
 	var err error
-	
+
 	if r.connectionPool != nil {
 		ctx := context.Background()
 		serverConn, err = r.connectionPool.GetConnection(ctx, serverAddr, false)
@@ -180,7 +180,7 @@ func (r *Relayer) HandleFastRelay(clientConn net.Conn, serverAddr string, info *
 		// Fallback to direct connection
 		serverConn, err = net.DialTimeout("tcp", serverAddr, 10*time.Second)
 	}
-	
+
 	if err != nil {
 		return fmt.Errorf("failed to connect to server: %w", err)
 	}
@@ -203,7 +203,7 @@ func (r *Relayer) HandleTransparentRelay(clientConn net.Conn, initialData []byte
 	// Try to get connection from pool first
 	var serverConn net.Conn
 	var err error
-	
+
 	if r.connectionPool != nil {
 		ctx := context.Background()
 		serverConn, err = r.connectionPool.GetConnection(ctx, info.ServerAddr, false)
@@ -211,7 +211,7 @@ func (r *Relayer) HandleTransparentRelay(clientConn net.Conn, initialData []byte
 		// Fallback to direct connection
 		serverConn, err = net.DialTimeout("tcp", info.ServerAddr, 10*time.Second)
 	}
-	
+
 	if err != nil {
 		return fmt.Errorf("failed to connect to server: %w", err)
 	}
@@ -273,7 +273,7 @@ func (r *Relayer) HandleHTTPRelay(clientConn net.Conn, initialData []byte, info 
 
 		// Try to get connection from pool first
 		var serverConn net.Conn
-		
+
 		if r.connectionPool != nil {
 			ctx := context.Background()
 			serverConn, err = r.connectionPool.GetConnection(ctx, info.ServerAddr, false)
@@ -281,7 +281,7 @@ func (r *Relayer) HandleHTTPRelay(clientConn net.Conn, initialData []byte, info 
 			// Fallback to direct connection
 			serverConn, err = net.DialTimeout("tcp", info.ServerAddr, 10*time.Second)
 		}
-		
+
 		if err != nil {
 			return fmt.Errorf("failed to connect to server: %w", err)
 		}
@@ -367,7 +367,7 @@ func (r *Relayer) HandleHTTPSInspection(clientConn net.Conn, serverAddr string, 
 
 	// Create smart TLS config with session resumption
 	tlsConfig2 := r.smartTLS.CreateTLSConfigWithSessionCache(info.Domain, tlsopt.TLSContextRelay, r.tlsSessionCache)
-	
+
 	// Set ticket keys for session resumption if session cache is available
 	if r.tlsSessionCache != nil {
 		ticketKeys := r.tlsSessionCache.GetTicketKeys()
@@ -379,7 +379,7 @@ func (r *Relayer) HandleHTTPSInspection(clientConn net.Conn, serverAddr string, 
 	// For HTTPS inspection, we need TLS connections with proper domain-specific config
 	var serverConn net.Conn
 	var isPooled bool
-	
+
 	// Try to get a TLS connection from pool first
 	if r.connectionPool != nil {
 		ctx := context.Background()
@@ -389,7 +389,7 @@ func (r *Relayer) HandleHTTPSInspection(clientConn net.Conn, serverAddr string, 
 			isPooled = true
 		}
 	}
-	
+
 	// If pool fails or not available, create direct TLS connection
 	if serverConn == nil {
 		var dialErr error
@@ -399,7 +399,7 @@ func (r *Relayer) HandleHTTPSInspection(clientConn net.Conn, serverAddr string, 
 		}
 		isPooled = false
 	}
-	
+
 	// Ensure we have a TLS connection
 	var tlsServerConn *tls.Conn
 	if isPooled {
@@ -426,7 +426,7 @@ func (r *Relayer) HandleHTTPSInspection(clientConn net.Conn, serverAddr string, 
 			return fmt.Errorf("expected TLS connection but got non-TLS connection")
 		}
 	}
-	
+
 	// Close connection appropriately - pooled connections handle their own lifecycle
 	defer func() {
 		if isPooled {
@@ -554,7 +554,7 @@ func (r *Relayer) bidirectionalRelay(clientConn, serverConn net.Conn, info *Conn
 func (r *Relayer) copyWithBuffer(dst io.Writer, src io.Reader) (int64, error) {
 	pooledBuffer := r.bufferPool.NewPooledBuffer(pool.LargeBuffer)
 	defer pooledBuffer.Release()
-	
+
 	buf := pooledBuffer.Bytes()
 
 	var written int64

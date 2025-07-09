@@ -12,45 +12,45 @@ import (
 
 // PreGenerationManager handles background certificate pre-generation
 type PreGenerationManager struct {
-	certManager       CertificateProvider
-	config            *PreGenerationConfig
-	popularDomains    []string
-	domainFrequency   map[string]int
-	frequencyMutex    sync.RWMutex
-	preGenQueue       chan string
-	workers           []*preGenWorker
-	shutdown          chan struct{}
-	wg                sync.WaitGroup
-	stats             *PreGenerationStats
-	enableDebug       bool
+	certManager     CertificateProvider
+	config          *PreGenerationConfig
+	popularDomains  []string
+	domainFrequency map[string]int
+	frequencyMutex  sync.RWMutex
+	preGenQueue     chan string
+	workers         []*preGenWorker
+	shutdown        chan struct{}
+	wg              sync.WaitGroup
+	stats           *PreGenerationStats
+	enableDebug     bool
 }
 
 // PreGenerationConfig contains configuration for certificate pre-generation
 type PreGenerationConfig struct {
-	Enabled             bool          `json:"enabled"`
-	WorkerCount         int           `json:"worker_count"`
-	QueueSize           int           `json:"queue_size"`
-	PopularDomainCount  int           `json:"popular_domain_count"`
-	FrequencyThreshold  int           `json:"frequency_threshold"`
-	PreGenInterval      time.Duration `json:"pregen_interval"`
-	DomainTTL           time.Duration `json:"domain_ttl"`
-	StaticDomains       []string      `json:"static_domains"`
-	EnableFreqTracking  bool          `json:"enable_frequency_tracking"`
-	MaxConcurrentGens   int           `json:"max_concurrent_generations"`
+	Enabled            bool          `json:"enabled"`
+	WorkerCount        int           `json:"worker_count"`
+	QueueSize          int           `json:"queue_size"`
+	PopularDomainCount int           `json:"popular_domain_count"`
+	FrequencyThreshold int           `json:"frequency_threshold"`
+	PreGenInterval     time.Duration `json:"pregen_interval"`
+	DomainTTL          time.Duration `json:"domain_ttl"`
+	StaticDomains      []string      `json:"static_domains"`
+	EnableFreqTracking bool          `json:"enable_frequency_tracking"`
+	MaxConcurrentGens  int           `json:"max_concurrent_generations"`
 }
 
 // PreGenerationStats tracks pre-generation performance
 type PreGenerationStats struct {
-	mutex                sync.RWMutex
-	TotalPreGenerated    int64
-	CacheHitsSaved       int64
-	QueuedDomains        int64
-	FailedGenerations    int64
-	AverageGenTime       time.Duration
-	PopularDomainCount   int
-	FrequencyMapSize     int
-	WorkerUtilization    float64
-	LastPreGenBatch      time.Time
+	mutex              sync.RWMutex
+	TotalPreGenerated  int64
+	CacheHitsSaved     int64
+	QueuedDomains      int64
+	FailedGenerations  int64
+	AverageGenTime     time.Duration
+	PopularDomainCount int
+	FrequencyMapSize   int
+	WorkerUtilization  float64
+	LastPreGenBatch    time.Time
 }
 
 // preGenWorker handles certificate generation in background
@@ -188,7 +188,7 @@ func (pgm *PreGenerationManager) RecordDomainAccess(domain string) {
 			pgm.stats.mutex.Lock()
 			pgm.stats.QueuedDomains++
 			pgm.stats.mutex.Unlock()
-			
+
 			if pgm.enableDebug {
 				log.Printf("Queued domain for pre-generation: %s (frequency: %d)", domain, frequency)
 			}
@@ -217,7 +217,7 @@ func (pgm *PreGenerationManager) RequestPreGeneration(domain string) error {
 		pgm.stats.mutex.Lock()
 		pgm.stats.QueuedDomains++
 		pgm.stats.mutex.Unlock()
-		
+
 		if pgm.enableDebug {
 			log.Printf("Manually queued domain for pre-generation: %s", domain)
 		}
@@ -259,13 +259,13 @@ func (pgm *PreGenerationManager) domainAnalysisWorker() {
 // updatePopularDomains updates the list of popular domains based on frequency
 func (pgm *PreGenerationManager) updatePopularDomains() {
 	pgm.frequencyMutex.RLock()
-	
+
 	// Create a slice of domain-frequency pairs
 	type domainFreq struct {
 		domain string
 		freq   int
 	}
-	
+
 	domains := make([]domainFreq, 0, len(pgm.domainFrequency))
 	for domain, freq := range pgm.domainFrequency {
 		if freq >= pgm.config.FrequencyThreshold {
@@ -299,7 +299,7 @@ func (pgm *PreGenerationManager) updatePopularDomains() {
 	pgm.stats.mutex.Unlock()
 
 	if pgm.enableDebug && len(newPopular) > 0 {
-		log.Printf("Updated popular domains list: %d domains, top 5: %v", 
+		log.Printf("Updated popular domains list: %d domains, top 5: %v",
 			len(newPopular), newPopular[:min(5, len(newPopular))])
 	}
 }
@@ -457,7 +457,7 @@ func (w *preGenWorker) processPreGeneration(domain string) {
 			w.manager.stats.mutex.Unlock()
 
 			if w.manager.enableDebug {
-				log.Printf("Worker %d skipped %s (certificate already valid until %v)", 
+				log.Printf("Worker %d skipped %s (certificate already valid until %v)",
 					w.id, domain, cert.ExpiresAt)
 			}
 			return
@@ -476,7 +476,7 @@ func (w *preGenWorker) processPreGeneration(domain string) {
 		}
 	} else {
 		w.manager.stats.TotalPreGenerated++
-		
+
 		// Update average generation time
 		if w.manager.stats.AverageGenTime == 0 {
 			w.manager.stats.AverageGenTime = duration

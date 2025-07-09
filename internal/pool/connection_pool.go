@@ -14,14 +14,14 @@ import (
 
 // ConnectionPool manages reusable network connections
 type ConnectionPool struct {
-	pools        map[string]*targetPool
-	poolsMutex   sync.RWMutex
-	maxPoolSize  int
-	maxIdleTime  time.Duration
-	dialTimeout  time.Duration
-	enableDebug  bool
-	stats        *PoolStats
-	smartTLS     *tlsverify.SmartTLSConfig
+	pools       map[string]*targetPool
+	poolsMutex  sync.RWMutex
+	maxPoolSize int
+	maxIdleTime time.Duration
+	dialTimeout time.Duration
+	enableDebug bool
+	stats       *PoolStats
+	smartTLS    *tlsverify.SmartTLSConfig
 }
 
 // targetPool holds connections for a specific target
@@ -45,26 +45,26 @@ type pooledConnection struct {
 
 // PoolStats tracks connection pool performance
 type PoolStats struct {
-	mutex               sync.RWMutex
-	TotalPools          int
-	TotalConnections    int
-	ActiveConnections   int
-	IdleConnections     int
-	PoolHits            int64
-	PoolMisses          int64
-	ConnectionsCreated  int64
-	ConnectionsReused   int64
-	ConnectionsExpired  int64
-	ConnectionsClosed   int64
+	mutex              sync.RWMutex
+	TotalPools         int
+	TotalConnections   int
+	ActiveConnections  int
+	IdleConnections    int
+	PoolHits           int64
+	PoolMisses         int64
+	ConnectionsCreated int64
+	ConnectionsReused  int64
+	ConnectionsExpired int64
+	ConnectionsClosed  int64
 }
 
 // PoolConfig contains connection pool configuration
 type PoolConfig struct {
-	MaxPoolSize    int
-	MaxIdleTime    time.Duration
-	DialTimeout    time.Duration
+	MaxPoolSize     int
+	MaxIdleTime     time.Duration
+	DialTimeout     time.Duration
 	CleanupInterval time.Duration
-	EnableDebug    bool
+	EnableDebug     bool
 }
 
 // NewConnectionPool creates a new connection pool
@@ -128,7 +128,7 @@ func (cp *ConnectionPool) GetConnection(ctx context.Context, target string, useT
 		// Extract domain from target for smart TLS verification
 		domain := extractDomainFromTarget(target)
 		tlsConfig := cp.smartTLS.CreateTLSConfig(domain, tlsverify.TLSContextPooling)
-		
+
 		conn, err = tls.DialWithDialer(&net.Dialer{
 			Timeout: cp.dialTimeout,
 		}, "tcp", target, tlsConfig)
@@ -363,7 +363,7 @@ cleanup:
 	}
 
 	if len(expiredConns) > 0 && cp.enableDebug {
-		fmt.Printf("Pool: Cleaned up %d expired connections for %s\n", 
+		fmt.Printf("Pool: Cleaned up %d expired connections for %s\n",
 			len(expiredConns), targetPool.target)
 	}
 }

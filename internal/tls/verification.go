@@ -15,13 +15,13 @@ type TLSVerificationContext string
 const (
 	// TLSContextRelay is for actual data relay operations (requires secure verification)
 	TLSContextRelay TLSVerificationContext = "relay"
-	
+
 	// TLSContextSniffing is for certificate analysis only (allows insecure for info gathering)
 	TLSContextSniffing TLSVerificationContext = "sniffing"
-	
+
 	// TLSContextPooling is for connection pool operations (requires secure verification)
 	TLSContextPooling TLSVerificationContext = "pooling"
-	
+
 	// TLSContextHealthCheck is for health check operations (requires secure verification)
 	TLSContextHealthCheck TLSVerificationContext = "healthcheck"
 )
@@ -44,31 +44,31 @@ func (s *SmartTLSConfig) isDevelopmentDomain(domain string) bool {
 	if idx := strings.LastIndex(domain, ":"); idx != -1 {
 		domain = domain[:idx]
 	}
-	
+
 	developmentPatterns := []string{
 		"localhost",
 		"127.0.0.1",
-		"::1",           // IPv6 localhost
-		"*.local",       // mDNS domains  
-		"*.dev",         // Development domains
-		"*.test",        // Test domains
-		"*.internal",    // Internal domains
-		"*.lan",         // Local network
-		"192.168.*",     // Private IP ranges
-		"10.*",          // Private IP ranges
-		"172.16.*",      // Private IP ranges start
+		"::1",                                          // IPv6 localhost
+		"*.local",                                      // mDNS domains
+		"*.dev",                                        // Development domains
+		"*.test",                                       // Test domains
+		"*.internal",                                   // Internal domains
+		"*.lan",                                        // Local network
+		"192.168.*",                                    // Private IP ranges
+		"10.*",                                         // Private IP ranges
+		"172.16.*",                                     // Private IP ranges start
 		"172.17.*", "172.18.*", "172.19.*", "172.20.*", // Private IP ranges
 		"172.21.*", "172.22.*", "172.23.*", "172.24.*", // Private IP ranges
 		"172.25.*", "172.26.*", "172.27.*", "172.28.*", // Private IP ranges
-		"172.29.*", "172.30.*", "172.31.*",             // Private IP ranges end
+		"172.29.*", "172.30.*", "172.31.*", // Private IP ranges end
 	}
-	
+
 	for _, pattern := range developmentPatterns {
 		if matched, _ := filepath.Match(pattern, domain); matched {
 			return true
 		}
 	}
-	
+
 	return false
 }
 
@@ -78,19 +78,19 @@ func (s *SmartTLSConfig) shouldAllowInsecureTLS(domain string, context TLSVerifi
 	if context == TLSContextSniffing {
 		return true
 	}
-	
+
 	// If debug mode is enabled, be permissive (preserves existing testing workflow)
 	if s.debugMode {
 		log.Printf("Debug mode enabled - allowing insecure TLS for %s (context: %s)", domain, context)
 		return true
 	}
-	
+
 	// Even in production, allow insecure for obvious development domains
 	if s.isDevelopmentDomain(domain) {
 		log.Printf("Development domain detected (%s) - allowing insecure TLS (context: %s)", domain, context)
 		return true
 	}
-	
+
 	// For everything else, require secure TLS
 	return false
 }
@@ -103,13 +103,13 @@ func (s *SmartTLSConfig) CreateTLSConfig(domain string, context TLSVerificationC
 			ServerName:         domain,
 		}
 	}
-	
+
 	// Create secure TLS configuration for production domains
 	return &tls.Config{
 		InsecureSkipVerify: false,
 		ServerName:         domain,
-		RootCAs:           getSystemCAs(), // Uses system's trusted CA bundle
-		MinVersion:        tls.VersionTLS12,
+		RootCAs:            getSystemCAs(), // Uses system's trusted CA bundle
+		MinVersion:         tls.VersionTLS12,
 		CurvePreferences: []tls.CurveID{
 			tls.X25519,    // Fastest
 			tls.CurveP256, // Widely supported
@@ -151,10 +151,10 @@ func (s *SmartTLSConfig) ConnectWithSmartVerification(network, address string, c
 	if idx := strings.LastIndex(address, ":"); idx != -1 {
 		domain = address[:idx]
 	}
-	
+
 	// Get the appropriate TLS configuration
 	tlsConfig := s.CreateTLSConfig(domain, context)
-	
+
 	// Attempt connection
 	conn, err := tls.Dial(network, address, tlsConfig)
 	if err != nil {
@@ -163,7 +163,7 @@ func (s *SmartTLSConfig) ConnectWithSmartVerification(network, address string, c
 			return nil, fmt.Errorf("TLS connection failed for certificate sniffing %s: %w\n"+
 				"This is normal for sites with invalid certificates during analysis", address, err)
 		}
-		
+
 		// For production contexts, provide security-focused error message
 		if s.isDevelopmentDomain(domain) {
 			return nil, fmt.Errorf("TLS connection failed to development domain %s: %w\n"+
@@ -174,7 +174,7 @@ func (s *SmartTLSConfig) ConnectWithSmartVerification(network, address string, c
 				"For testing with invalid certificates, enable debug mode in configuration", address, err)
 		}
 	}
-	
+
 	return conn, nil
 }
 

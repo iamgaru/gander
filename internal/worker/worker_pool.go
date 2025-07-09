@@ -12,14 +12,14 @@ import (
 
 // WorkerPool manages a pool of workers for handling connections asynchronously
 type WorkerPool struct {
-	workerCount    int
-	jobQueue       chan *Job
-	workers        []*Worker
-	shutdown       chan struct{}
-	wg             sync.WaitGroup
-	stats          *WorkerPoolStats
-	enableDebug    bool
-	started        int32
+	workerCount int
+	jobQueue    chan *Job
+	workers     []*Worker
+	shutdown    chan struct{}
+	wg          sync.WaitGroup
+	stats       *WorkerPoolStats
+	enableDebug bool
+	started     int32
 }
 
 // Job represents work to be done by a worker
@@ -61,21 +61,21 @@ type WorkerPoolStats struct {
 
 // WorkerStats tracks individual worker performance
 type WorkerStats struct {
-	JobsProcessed   int64
-	JobsFailed      int64
-	TotalWorkTime   time.Duration
-	LastJobTime     time.Time
-	IsActive        bool
-	mutex           sync.RWMutex
+	JobsProcessed int64
+	JobsFailed    int64
+	TotalWorkTime time.Duration
+	LastJobTime   time.Time
+	IsActive      bool
+	mutex         sync.RWMutex
 }
 
 // WorkerPoolConfig contains configuration for the worker pool
 type WorkerPoolConfig struct {
-	WorkerCount      int
-	QueueSize        int
-	EnableDebug      bool
-	JobTimeout       time.Duration
-	ShutdownTimeout  time.Duration
+	WorkerCount     int
+	QueueSize       int
+	EnableDebug     bool
+	JobTimeout      time.Duration
+	ShutdownTimeout time.Duration
 }
 
 // NewWorkerPool creates a new worker pool
@@ -136,7 +136,7 @@ func (wp *WorkerPool) Start() error {
 	go wp.monitorQueue()
 
 	if wp.enableDebug {
-		fmt.Printf("Worker pool started with %d workers, queue size %d\n", 
+		fmt.Printf("Worker pool started with %d workers, queue size %d\n",
 			wp.workerCount, cap(wp.jobQueue))
 	}
 
@@ -153,7 +153,7 @@ func (wp *WorkerPool) Submit(job *Job) error {
 	case wp.jobQueue <- job:
 		atomic.AddInt64(&wp.stats.TotalJobs, 1)
 		atomic.AddInt64(&wp.stats.QueuedJobs, 1)
-		
+
 		if wp.enableDebug {
 			fmt.Printf("Job %s queued for processing\n", job.ID)
 		}
@@ -340,7 +340,7 @@ func (w *Worker) processJob(job *Job) {
 		}
 
 		if w.pool.enableDebug {
-			fmt.Printf("Worker %d completed job %s in %v\n", 
+			fmt.Printf("Worker %d completed job %s in %v\n",
 				w.id, job.ID, time.Since(startTime))
 		}
 	}()
@@ -354,7 +354,7 @@ func (w *Worker) processJob(job *Job) {
 	// Process the job
 	if err := w.executeJob(ctx, job); err != nil {
 		atomic.AddInt64(&w.pool.stats.FailedJobs, 1)
-		
+
 		w.stats.mutex.Lock()
 		w.stats.JobsFailed++
 		w.stats.mutex.Unlock()
@@ -410,8 +410,8 @@ func (w *Worker) stop() {
 // AdaptiveWorkerPool provides dynamic worker scaling based on load
 type AdaptiveWorkerPool struct {
 	*WorkerPool
-	minWorkers    int
-	maxWorkers    int
+	minWorkers         int
+	maxWorkers         int
 	scaleUpThreshold   float64
 	scaleDownThreshold float64
 	scalingMutex       sync.Mutex
@@ -422,13 +422,13 @@ type AdaptiveWorkerPool struct {
 // NewAdaptiveWorkerPool creates a worker pool that can scale based on load
 func NewAdaptiveWorkerPool(config *WorkerPoolConfig, minWorkers, maxWorkers int) *AdaptiveWorkerPool {
 	pool := NewWorkerPool(config)
-	
+
 	return &AdaptiveWorkerPool{
 		WorkerPool:         pool,
 		minWorkers:         minWorkers,
 		maxWorkers:         maxWorkers,
-		scaleUpThreshold:   0.8,   // Scale up when 80% busy
-		scaleDownThreshold: 0.3,   // Scale down when 30% busy
+		scaleUpThreshold:   0.8, // Scale up when 80% busy
+		scaleDownThreshold: 0.3, // Scale down when 30% busy
 		scaleInterval:      30 * time.Second,
 	}
 }
@@ -472,13 +472,13 @@ func (awp *AdaptiveWorkerPool) checkAndScale() {
 
 	stats := awp.GetStats()
 	currentWorkers := len(awp.workers)
-	
+
 	// Calculate utilization
 	totalWorkers := stats.ActiveWorkers + stats.IdleWorkers
 	if totalWorkers == 0 {
 		return
 	}
-	
+
 	utilization := float64(stats.ActiveWorkers) / float64(totalWorkers)
 	queueUtilization := float64(stats.CurrentQueueLen) / float64(stats.MaxQueueSize)
 
@@ -518,7 +518,7 @@ func (awp *AdaptiveWorkerPool) scaleUp() {
 	awp.workers = append(awp.workers, worker)
 	awp.wg.Add(1)
 	go worker.start()
-	
+
 	atomic.AddInt32(&awp.stats.IdleWorkers, 1)
 
 	if awp.enableDebug {

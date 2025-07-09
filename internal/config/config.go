@@ -20,16 +20,16 @@ const (
 
 // ProxyConfig contains proxy server settings
 type ProxyConfig struct {
-	ListenAddr        string `json:"listen_addr"`
-	Transparent       bool   `json:"transparent"`
-	ExplicitPort      int    `json:"explicit_port"`
-	BufferSize        int    `json:"buffer_size"`
-	ReadTimeout       int    `json:"read_timeout_seconds"`
-	WriteTimeout      int    `json:"write_timeout_seconds"`
-	MaxConnections    int    `json:"max_connections"`
-	WorkerPoolSize    int    `json:"worker_pool_size"`
-	EnableKeepalive   bool   `json:"enable_keepalive"`
-	KeepaliveTimeout  int    `json:"keepalive_timeout_seconds"`
+	ListenAddr       string `json:"listen_addr"`
+	Transparent      bool   `json:"transparent"`
+	ExplicitPort     int    `json:"explicit_port"`
+	BufferSize       int    `json:"buffer_size"`
+	ReadTimeout      int    `json:"read_timeout_seconds"`
+	WriteTimeout     int    `json:"write_timeout_seconds"`
+	MaxConnections   int    `json:"max_connections"`
+	WorkerPoolSize   int    `json:"worker_pool_size"`
+	EnableKeepalive  bool   `json:"enable_keepalive"`
+	KeepaliveTimeout int    `json:"keepalive_timeout_seconds"`
 }
 
 // LoggingConfig contains logging settings

@@ -21,9 +21,9 @@ import (
 // DefaultCertManager implements the CertificateProvider interface
 type DefaultCertManager struct {
 	*CertificateManager
-	tlsSessionCache *tlsopt.SessionCache
+	tlsSessionCache  *tlsopt.SessionCache
 	tlsConfigBuilder *tlsopt.TLSConfigBuilder
-	smartTLS        *tlsopt.SmartTLSConfig
+	smartTLS         *tlsopt.SmartTLSConfig
 }
 
 // NewCertificateManager creates a new certificate manager
@@ -217,7 +217,7 @@ func (cm *DefaultCertManager) GetOptimizedTLSConfig(domain string, isClient bool
 		if err != nil {
 			return nil, err
 		}
-		
+
 		return &tls.Config{
 			Certificates: []tls.Certificate{*cert},
 			ServerName:   domain,

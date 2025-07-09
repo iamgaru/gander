@@ -33,27 +33,27 @@ type SessionEntry struct {
 
 // SessionCacheStats tracks session cache performance
 type SessionCacheStats struct {
-	mutex               sync.RWMutex
-	TotalSessions       int64
-	ActiveSessions      int64
-	SessionHits         int64
-	SessionMisses       int64
-	SessionsCreated     int64
-	SessionsExpired     int64
-	TicketKeyRotations  int64
-	ResumptionRate      float64
-	AverageSessionLife  time.Duration
+	mutex              sync.RWMutex
+	TotalSessions      int64
+	ActiveSessions     int64
+	SessionHits        int64
+	SessionMisses      int64
+	SessionsCreated    int64
+	SessionsExpired    int64
+	TicketKeyRotations int64
+	ResumptionRate     float64
+	AverageSessionLife time.Duration
 }
 
 // SessionCacheConfig contains configuration for the session cache
 type SessionCacheConfig struct {
-	MaxSessions         int
-	SessionTTL          time.Duration
-	TicketKeyRotation   time.Duration
-	CleanupInterval     time.Duration
-	EnableDebug         bool
-	EnableClientCache   bool
-	EnableServerCache   bool
+	MaxSessions       int
+	SessionTTL        time.Duration
+	TicketKeyRotation time.Duration
+	CleanupInterval   time.Duration
+	EnableDebug       bool
+	EnableClientCache bool
+	EnableServerCache bool
 }
 
 // NewSessionCache creates a new TLS session cache
@@ -185,7 +185,7 @@ func (sc *SessionCache) PutWithContext(sessionKey string, sessionState *tls.Clie
 	sc.stats.recordCreated()
 
 	if sc.enableDebug {
-		fmt.Printf("TLS session cached for %s (client: %s, server: %s)\n", 
+		fmt.Printf("TLS session cached for %s (client: %s, server: %s)\n",
 			sessionKey, clientAddr, serverName)
 	}
 }
@@ -369,10 +369,10 @@ func (sc *SessionCache) SetTicketKeys(keys [][32]byte) {
 // CreateTLSConfig creates a TLS config with session resumption enabled
 func (sc *SessionCache) CreateTLSConfig(baseCfg *tls.Config) *tls.Config {
 	cfg := baseCfg.Clone()
-	
+
 	// Set session cache
 	cfg.ClientSessionCache = sc
-	
+
 	// Set ticket keys
 	ticketKeys := sc.GetTicketKeys()
 	if len(ticketKeys) > 0 {
@@ -450,7 +450,7 @@ func (tcb *TLSConfigBuilder) BuildClientConfig(serverName string, insecureSkipVe
 		ServerName:         serverName,
 		InsecureSkipVerify: insecureSkipVerify,
 		ClientSessionCache: tcb.sessionCache,
-		
+
 		// Performance optimizations
 		PreferServerCipherSuites: false, // Let client choose for better performance
 		CurvePreferences: []tls.CurveID{
@@ -468,7 +468,7 @@ func (tcb *TLSConfigBuilder) BuildClientConfig(serverName string, insecureSkipVe
 		},
 		MinVersion: tls.VersionTLS12,
 		MaxVersion: tls.VersionTLS13,
-		
+
 		// Enable session resumption
 		SessionTicketsDisabled: false,
 	}
@@ -488,7 +488,7 @@ func (tcb *TLSConfigBuilder) BuildClientConfig(serverName string, insecureSkipVe
 func (tcb *TLSConfigBuilder) BuildServerConfig(certificates []tls.Certificate) *tls.Config {
 	cfg := &tls.Config{
 		Certificates: certificates,
-		
+
 		// Performance optimizations
 		PreferServerCipherSuites: true, // Server has better knowledge of its capabilities
 		CurvePreferences: []tls.CurveID{
@@ -506,7 +506,7 @@ func (tcb *TLSConfigBuilder) BuildServerConfig(certificates []tls.Certificate) *
 		},
 		MinVersion: tls.VersionTLS12,
 		MaxVersion: tls.VersionTLS13,
-		
+
 		// Enable session resumption
 		SessionTicketsDisabled: false,
 	}

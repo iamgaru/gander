@@ -30,14 +30,14 @@ type Server struct {
 	stats         *ProxyStats
 
 	// Core components - Enhanced
-	bufferPool       *pool.EnhancedBufferPool
-	connectionPool   *pool.ConnectionPool
-	workerPool       *worker.WorkerPool
-	tlsSessionCache  *tlsopt.SessionCache
-	certManager      cert.CertificateProvider
-	certPreGenMgr    *cert.PreGenerationManager
-	relayer          *relay.Relayer
-	captureManager   *capture.CaptureManager
+	bufferPool      *pool.EnhancedBufferPool
+	connectionPool  *pool.ConnectionPool
+	workerPool      *worker.WorkerPool
+	tlsSessionCache *tlsopt.SessionCache
+	certManager     cert.CertificateProvider
+	certPreGenMgr   *cert.PreGenerationManager
+	relayer         *relay.Relayer
+	captureManager  *capture.CaptureManager
 
 	// Runtime state
 	logFile    *os.File
@@ -71,13 +71,13 @@ func NewServer(cfg *config.Config, filterManager *filter.Manager) (*Server, erro
 
 	// Create TLS session cache
 	tlsSessionCacheConfig := &tlsopt.SessionCacheConfig{
-		MaxSessions:         cfg.Performance.TLSSessionCache.MaxSessions,
-		SessionTTL:          time.Duration(cfg.Performance.TLSSessionCache.SessionTTLHours) * time.Hour,
-		TicketKeyRotation:   time.Duration(cfg.Performance.TLSSessionCache.TicketKeyRotationHr) * time.Hour,
-		CleanupInterval:     5 * time.Minute,
-		EnableDebug:         cfg.Logging.EnableDebug,
-		EnableClientCache:   true,
-		EnableServerCache:   true,
+		MaxSessions:       cfg.Performance.TLSSessionCache.MaxSessions,
+		SessionTTL:        time.Duration(cfg.Performance.TLSSessionCache.SessionTTLHours) * time.Hour,
+		TicketKeyRotation: time.Duration(cfg.Performance.TLSSessionCache.TicketKeyRotationHr) * time.Hour,
+		CleanupInterval:   5 * time.Minute,
+		EnableDebug:       cfg.Logging.EnableDebug,
+		EnableClientCache: true,
+		EnableServerCache: true,
 	}
 	tlsSessionCache := tlsopt.NewSessionCache(tlsSessionCacheConfig)
 
@@ -98,12 +98,12 @@ func NewServer(cfg *config.Config, filterManager *filter.Manager) (*Server, erro
 
 	// Initialize certificate manager
 	certManager := cert.NewCertificateManager(cfg.Logging.EnableDebug)
-	
+
 	// Set TLS session cache on certificate manager
 	if tlsSessionCache != nil && cfg.Performance.TLSSessionCache.Enabled {
 		certManager.SetTLSSessionCache(tlsSessionCache)
 	}
-	
+
 	if cfg.TLS.AutoGenerate {
 		// Set default certificate details
 		organization := "Gamu Corporation"
@@ -155,16 +155,16 @@ func NewServer(cfg *config.Config, filterManager *filter.Manager) (*Server, erro
 
 	// Initialize certificate pre-generation manager
 	certPreGenConfig := &cert.PreGenerationConfig{
-		Enabled:             cfg.Performance.CertPreGeneration.Enabled,
-		WorkerCount:         cfg.Performance.CertPreGeneration.WorkerCount,
-		QueueSize:           1000,
-		PopularDomainCount:  cfg.Performance.CertPreGeneration.PopularDomainCount,
-		FrequencyThreshold:  cfg.Performance.CertPreGeneration.FrequencyThreshold,
-		PreGenInterval:      10 * time.Minute,
-		DomainTTL:           24 * time.Hour,
-		StaticDomains:       cfg.Performance.CertPreGeneration.StaticDomains,
-		EnableFreqTracking:  cfg.Performance.CertPreGeneration.EnableFreqTracking,
-		MaxConcurrentGens:   10,
+		Enabled:            cfg.Performance.CertPreGeneration.Enabled,
+		WorkerCount:        cfg.Performance.CertPreGeneration.WorkerCount,
+		QueueSize:          1000,
+		PopularDomainCount: cfg.Performance.CertPreGeneration.PopularDomainCount,
+		FrequencyThreshold: cfg.Performance.CertPreGeneration.FrequencyThreshold,
+		PreGenInterval:     10 * time.Minute,
+		DomainTTL:          24 * time.Hour,
+		StaticDomains:      cfg.Performance.CertPreGeneration.StaticDomains,
+		EnableFreqTracking: cfg.Performance.CertPreGeneration.EnableFreqTracking,
+		MaxConcurrentGens:  10,
 	}
 	certPreGenMgr := cert.NewPreGenerationManager(certManager, certPreGenConfig, cfg.Logging.EnableDebug)
 
@@ -187,19 +187,19 @@ func NewServer(cfg *config.Config, filterManager *filter.Manager) (*Server, erro
 	relayer.SetCaptureHandler(captureManager)
 
 	server := &Server{
-		config:           cfg,
-		filterManager:    filterManager,
-		stats:            stats,
-		bufferPool:       bufferPool,
-		connectionPool:   connectionPool,
-		workerPool:       workerPool,
-		tlsSessionCache:  tlsSessionCache,
-		certManager:      certManager,
-		certPreGenMgr:    certPreGenMgr,
-		relayer:          relayer,
-		captureManager:   captureManager,
-		logFile:          logFile,
-		shutdownCh:       make(chan struct{}),
+		config:          cfg,
+		filterManager:   filterManager,
+		stats:           stats,
+		bufferPool:      bufferPool,
+		connectionPool:  connectionPool,
+		workerPool:      workerPool,
+		tlsSessionCache: tlsSessionCache,
+		certManager:     certManager,
+		certPreGenMgr:   certPreGenMgr,
+		relayer:         relayer,
+		captureManager:  captureManager,
+		logFile:         logFile,
+		shutdownCh:      make(chan struct{}),
 	}
 
 	return server, nil
@@ -366,7 +366,7 @@ func (s *Server) handleConnection(clientConn net.Conn) {
 	// Read initial data to determine protocol using enhanced buffer pool
 	pooledBuffer := s.bufferPool.NewPooledBuffer(pool.SmallBuffer)
 	defer pooledBuffer.Release()
-	
+
 	buffer := pooledBuffer.Slice(1024)
 	n, err := clientConn.Read(buffer)
 	if err != nil {

@@ -17,10 +17,10 @@ const (
 
 // Buffer sizes in bytes
 const (
-	SmallBufferSize  = 4 * 1024   // 4KB
-	MediumBufferSize = 16 * 1024  // 16KB
-	LargeBufferSize  = 64 * 1024  // 64KB
-	HTTPBufferSize   = 8 * 1024   // 8KB
+	SmallBufferSize  = 4 * 1024  // 4KB
+	MediumBufferSize = 16 * 1024 // 16KB
+	LargeBufferSize  = 64 * 1024 // 64KB
+	HTTPBufferSize   = 8 * 1024  // 8KB
 )
 
 // EnhancedBufferPool provides efficient buffer management with multiple size categories
@@ -196,9 +196,9 @@ func (bp *EnhancedBufferPool) GetStats() BufferPoolStats {
 // GetEfficiency returns buffer pool efficiency metrics
 func (bp *EnhancedBufferPool) GetEfficiency() map[string]float64 {
 	stats := bp.GetStats()
-	
+
 	efficiency := make(map[string]float64)
-	
+
 	// Calculate reuse rates for each buffer type
 	if stats.SmallBufferGets > 0 {
 		efficiency["small_reuse_rate"] = float64(stats.SmallBufferPuts) / float64(stats.SmallBufferGets)
@@ -212,20 +212,20 @@ func (bp *EnhancedBufferPool) GetEfficiency() map[string]float64 {
 	if stats.HTTPBufferGets > 0 {
 		efficiency["http_reuse_rate"] = float64(stats.HTTPBufferPuts) / float64(stats.HTTPBufferGets)
 	}
-	
+
 	// Overall reuse rate
 	totalGets := stats.SmallBufferGets + stats.MediumBufferGets + stats.LargeBufferGets + stats.HTTPBufferGets
 	totalPuts := stats.SmallBufferPuts + stats.MediumBufferPuts + stats.LargeBufferPuts + stats.HTTPBufferPuts
-	
+
 	if totalGets > 0 {
 		efficiency["overall_reuse_rate"] = float64(totalPuts) / float64(totalGets)
 	}
-	
+
 	// Memory efficiency (how much we're avoiding allocations)
 	if stats.TotalAllocations > 0 {
 		efficiency["allocation_efficiency"] = 1.0 - (float64(stats.TotalAllocations) / float64(totalGets))
 	}
-	
+
 	return efficiency
 }
 
@@ -330,16 +330,16 @@ func (zb *ZeroCopyBuffer) Read(p []byte) (n int, err error) {
 	if zb.offset >= len(zb.buf) {
 		return 0, nil
 	}
-	
+
 	available := len(zb.buf) - zb.offset
 	n = copy(p, zb.buf[zb.offset:])
 	zb.offset += n
-	
+
 	if n < len(p) && available > 0 {
 		// We couldn't fill the entire slice, so we're at EOF
 		return n, nil
 	}
-	
+
 	return n, nil
 }
 
@@ -354,11 +354,11 @@ func (zb *ZeroCopyBuffer) Write(p []byte) (n int, err error) {
 		}
 		return n, nil
 	}
-	
+
 	// Enough space for entire write
 	n = copy(zb.buf[len(zb.buf):cap(zb.buf)], p)
 	zb.buf = zb.buf[:len(zb.buf)+n]
-	
+
 	return n, nil
 }
 

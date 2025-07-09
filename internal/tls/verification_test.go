@@ -8,7 +8,7 @@ import (
 func TestSmartTLSConfig(t *testing.T) {
 	// Test with debug mode disabled (production)
 	smartTLS := NewSmartTLSConfig(false)
-	
+
 	// Test production domain - should be secure
 	config := smartTLS.CreateTLSConfig("google.com", TLSContextRelay)
 	if config.InsecureSkipVerify != false {
@@ -17,13 +17,13 @@ func TestSmartTLSConfig(t *testing.T) {
 	if config.ServerName != "google.com" {
 		t.Error("ServerName should be set correctly")
 	}
-	
+
 	// Test development domain - should allow insecure
 	config = smartTLS.CreateTLSConfig("localhost", TLSContextRelay)
 	if config.InsecureSkipVerify != true {
 		t.Error("Development domain should allow insecure TLS")
 	}
-	
+
 	// Test certificate sniffing - should always allow insecure
 	config = smartTLS.CreateTLSConfig("google.com", TLSContextSniffing)
 	if config.InsecureSkipVerify != true {
@@ -34,13 +34,13 @@ func TestSmartTLSConfig(t *testing.T) {
 func TestSmartTLSConfigDebugMode(t *testing.T) {
 	// Test with debug mode enabled
 	smartTLS := NewSmartTLSConfig(true)
-	
+
 	// In debug mode, all domains should allow insecure TLS
 	config := smartTLS.CreateTLSConfig("google.com", TLSContextRelay)
 	if config.InsecureSkipVerify != true {
 		t.Error("Debug mode should allow insecure TLS for all domains")
 	}
-	
+
 	config = smartTLS.CreateTLSConfig("badssl.com", TLSContextPooling)
 	if config.InsecureSkipVerify != true {
 		t.Error("Debug mode should allow insecure TLS for all domains")
@@ -49,11 +49,11 @@ func TestSmartTLSConfigDebugMode(t *testing.T) {
 
 func TestDevelopmentDomainDetection(t *testing.T) {
 	smartTLS := NewSmartTLSConfig(false)
-	
+
 	testCases := []struct {
-		domain       string
-		shouldBeDev  bool
-		description  string
+		domain      string
+		shouldBeDev bool
+		description string
 	}{
 		{"localhost", true, "localhost should be development"},
 		{"localhost:3000", true, "localhost with port should be development"},
@@ -70,12 +70,12 @@ func TestDevelopmentDomainDetection(t *testing.T) {
 		{"github.com", false, "github.com should be production"},
 		{"badssl.com", false, "badssl.com should be production"},
 	}
-	
+
 	for _, tc := range testCases {
 		t.Run(tc.description, func(t *testing.T) {
 			isDev := smartTLS.isDevelopmentDomain(tc.domain)
 			if isDev != tc.shouldBeDev {
-				t.Errorf("Domain %s: expected isDevelopment=%v, got %v", 
+				t.Errorf("Domain %s: expected isDevelopment=%v, got %v",
 					tc.domain, tc.shouldBeDev, isDev)
 			}
 		})
@@ -84,16 +84,16 @@ func TestDevelopmentDomainDetection(t *testing.T) {
 
 func TestTLSConfigWithSessionCache(t *testing.T) {
 	smartTLS := NewSmartTLSConfig(false)
-	
+
 	// Create a mock session cache
 	cache := &mockSessionCache{}
-	
+
 	config := smartTLS.CreateTLSConfigWithSessionCache("google.com", TLSContextRelay, cache)
-	
+
 	if config.ClientSessionCache != cache {
 		t.Error("Session cache should be set correctly")
 	}
-	
+
 	if config.InsecureSkipVerify != false {
 		t.Error("Production domain should use secure TLS even with session cache")
 	}
@@ -110,7 +110,7 @@ func TestTLSContextValidation(t *testing.T) {
 		{TLSContextHealthCheck, false},
 		{TLSVerificationContext("invalid"), true},
 	}
-	
+
 	for _, tc := range testCases {
 		err := ValidateTLSContext(tc.context)
 		if tc.shouldErr && err == nil {

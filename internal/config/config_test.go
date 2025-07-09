@@ -215,7 +215,7 @@ func TestConfigSetDefaults(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			tt.input.SetDefaults()
-			
+
 			// Initialize expected maps to match what SetDefaults() creates
 			if tt.expected.Filters.ProviderConfigs == nil {
 				tt.expected.Filters.ProviderConfigs = make(map[string]interface{})
@@ -223,7 +223,7 @@ func TestConfigSetDefaults(t *testing.T) {
 			if tt.expected.Providers == nil {
 				tt.expected.Providers = make(map[string]interface{})
 			}
-			
+
 			if !reflect.DeepEqual(tt.input, tt.expected) {
 				t.Errorf("SetDefaults() = %+v, want %+v", tt.input, tt.expected)
 			}
