@@ -314,8 +314,17 @@ func (sc *SessionCache) GetStats() SessionCacheStats {
 	activeSessions := int64(len(sc.sessions))
 	sc.sessionsMutex.RUnlock()
 
-	stats := *sc.stats
-	stats.ActiveSessions = activeSessions
+	// Create a copy without copying the mutex
+	stats := SessionCacheStats{
+		TotalSessions:      sc.stats.TotalSessions,
+		ActiveSessions:     activeSessions,
+		SessionHits:        sc.stats.SessionHits,
+		SessionMisses:      sc.stats.SessionMisses,
+		SessionsCreated:    sc.stats.SessionsCreated,
+		SessionsExpired:    sc.stats.SessionsExpired,
+		TicketKeyRotations: sc.stats.TicketKeyRotations,
+		AverageSessionLife: sc.stats.AverageSessionLife,
+	}
 
 	// Calculate resumption rate
 	totalAttempts := stats.SessionHits + stats.SessionMisses

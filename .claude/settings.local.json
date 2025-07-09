@@ -27,7 +27,9 @@
       "Bash(./test-security.sh)",
       "Bash(git commit:*)",
       "Bash(gofmt:*)",
-      "Bash(go mod:*)"
+      "Bash(go mod:*)",
+      "Bash(git push:*)",
+      "Bash(go vet:*)"
     ],
     "deny": []
   }

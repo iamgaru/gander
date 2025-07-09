@@ -427,16 +427,8 @@ func (r *Relayer) HandleHTTPSInspection(clientConn net.Conn, serverAddr string, 
 		}
 	}
 
-	// Close connection appropriately - pooled connections handle their own lifecycle
-	defer func() {
-		if isPooled {
-			// For pooled connections, call Close() to potentially return to pool
-			serverConn.Close()
-		} else {
-			// For direct connections, close immediately
-			serverConn.Close()
-		}
-	}()
+	// Close connection appropriately - both pooled and direct connections use Close()
+	defer serverConn.Close()
 
 	// Handle as HTTP over the TLS connections
 	return r.handleHTTPSTraffic(tlsClientConn, tlsServerConn, info)

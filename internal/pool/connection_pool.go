@@ -384,11 +384,19 @@ func (cp *ConnectionPool) GetStats() PoolStats {
 	}
 	cp.poolsMutex.RUnlock()
 
-	stats := *cp.stats
-	stats.TotalPools = totalPools
-	stats.TotalConnections = totalConns
-	stats.IdleConnections = idleConns
-	stats.ActiveConnections = totalConns - idleConns
+	// Create a copy without copying the mutex
+	stats := PoolStats{
+		TotalPools:         totalPools,
+		TotalConnections:   totalConns,
+		ActiveConnections:  totalConns - idleConns,
+		IdleConnections:    idleConns,
+		PoolHits:           cp.stats.PoolHits,
+		PoolMisses:         cp.stats.PoolMisses,
+		ConnectionsCreated: cp.stats.ConnectionsCreated,
+		ConnectionsReused:  cp.stats.ConnectionsReused,
+		ConnectionsExpired: cp.stats.ConnectionsExpired,
+		ConnectionsClosed:  cp.stats.ConnectionsClosed,
+	}
 
 	return stats
 }
