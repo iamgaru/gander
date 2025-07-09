@@ -85,6 +85,7 @@ type Relayer struct {
 	certManager     cert.CertificateProvider
 	captureHandler  CaptureHandler
 	stats           *RelayStats
+	smartTLS        *tlsopt.SmartTLSConfig
 }
 
 // RelayStats tracks relay performance statistics
@@ -117,6 +118,7 @@ func NewEnhancedRelayer(bufferPool *pool.EnhancedBufferPool, connectionPool *poo
 		writeTimeout:   writeTimeout,
 		enableDebug:    enableDebug,
 		stats:          NewRelayStats(),
+		smartTLS:       tlsopt.NewSmartTLSConfig(enableDebug),
 	}
 }
 
@@ -131,6 +133,7 @@ func NewRelayer(bufferPool *BufferPool, readTimeout, writeTimeout time.Duration,
 		writeTimeout: writeTimeout,
 		enableDebug:  enableDebug,
 		stats:        NewRelayStats(),
+		smartTLS:     tlsopt.NewSmartTLSConfig(enableDebug),
 	}
 }
 
@@ -362,16 +365,11 @@ func (r *Relayer) HandleHTTPSInspection(clientConn net.Conn, serverAddr string, 
 			clientConn.RemoteAddr(), serverAddr, info.Domain)
 	}
 
-	// Create TLS config with session resumption
-	tlsConfig2 := &tls.Config{
-		ServerName:         info.Domain,
-		InsecureSkipVerify: true, // We'll validate manually if needed
-	}
+	// Create smart TLS config with session resumption
+	tlsConfig2 := r.smartTLS.CreateTLSConfigWithSessionCache(info.Domain, tlsopt.TLSContextRelay, r.tlsSessionCache)
 	
-	// Use session cache if available
+	// Set ticket keys for session resumption if session cache is available
 	if r.tlsSessionCache != nil {
-		tlsConfig2.ClientSessionCache = r.tlsSessionCache
-		// Set ticket keys for session resumption
 		ticketKeys := r.tlsSessionCache.GetTicketKeys()
 		if len(ticketKeys) > 0 {
 			tlsConfig2.SetSessionTicketKeys(ticketKeys)

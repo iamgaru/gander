@@ -112,10 +112,12 @@ Gander features a modern, modular architecture designed for extensibility and pe
 - **Scalable**: Handles thousands of concurrent connections with sub-second response times
 
 ### 🔒 **Security & Compliance**
+- **Smart TLS Verification**: Context-aware certificate validation with automatic development domain detection
 - **Transparent Inspection**: HTTPS interception with dynamic certificate generation
 - **Audit Trails**: Complete request/response capture for forensics
 - **Access Control**: Domain and IP-based filtering rules
 - **Data Protection**: Configurable body capture limits and content filtering
+- **Security by Default**: Secure TLS connections for production domains, development-friendly for testing
 
 ### 🔌 **Extensibility**
 - **Pluggable Identity Providers**: Easy integration with existing identity systems
@@ -467,6 +469,7 @@ make release        # Create release packages
 ## Documentation
 
 - **[Architecture Guide](docs/ARCHITECTURE.md)** - Detailed system architecture
+- **[Security Fixes](docs/SECURITY_FIXES.md)** - TLS security improvements and implementation details
 - **[Identity-Based Reporting](docs/identity_based_reporting.md)** - Complete identity system guide
 - **[Storage & Compression](docs/storage_and_compression.md)** - Storage management documentation  
 - **[Enhanced Capture Config](docs/enhanced_capture_config.md)** - Capture format specifications
@@ -508,6 +511,12 @@ We welcome contributions! Please see our [Contributing Guidelines](CONTRIBUTING.
   - Advanced connection pooling with 25% hit rate
   - Fixed critical worker pool configuration bug
   - Enhanced TLS session resumption and certificate pre-generation
+- ✅ **Security Enhancements** (v3.0.2)
+  - Smart TLS certificate verification system
+  - Resolved all GitHub Advanced Security alerts
+  - Context-aware certificate validation
+  - Automatic development domain detection
+  - Zero breaking changes with enhanced security
 
 ### Version 3.1 (Q1 2025)
 - 🔄 DHCP identity provider

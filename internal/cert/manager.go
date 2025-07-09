@@ -23,6 +23,7 @@ type DefaultCertManager struct {
 	*CertificateManager
 	tlsSessionCache *tlsopt.SessionCache
 	tlsConfigBuilder *tlsopt.TLSConfigBuilder
+	smartTLS        *tlsopt.SmartTLSConfig
 }
 
 // NewCertificateManager creates a new certificate manager
@@ -33,6 +34,7 @@ func NewCertificateManager(enableDebug bool) *DefaultCertManager {
 			enableDebug: enableDebug,
 			stats:       NewCertStats(),
 		},
+		smartTLS: tlsopt.NewSmartTLSConfig(enableDebug),
 	}
 }
 
@@ -378,22 +380,11 @@ func (cm *DefaultCertManager) GenerateCertificate(domain string, template *Upstr
 
 // SniffUpstreamCert retrieves certificate information from upstream server
 func (cm *DefaultCertManager) SniffUpstreamCert(domain string, port int) (*UpstreamCertInfo, error) {
-	// Use optimized TLS config if available
-	var tlsConfig *tls.Config
-	
-	if cm.tlsConfigBuilder != nil {
-		tlsConfig = cm.tlsConfigBuilder.BuildClientConfig(domain, true)
-	} else {
-		tlsConfig = &tls.Config{
-			InsecureSkipVerify: true,
-			ServerName:         domain,
-		}
-	}
-	
-	// Connect to upstream server
-	conn, err := tls.Dial("tcp", fmt.Sprintf("%s:%d", domain, port), tlsConfig)
+	// Use smart TLS config for certificate sniffing (allows insecure connections for analysis)
+	address := fmt.Sprintf("%s:%d", domain, port)
+	conn, err := cm.smartTLS.ConnectWithSmartVerification("tcp", address, tlsopt.TLSContextSniffing)
 	if err != nil {
-		return nil, fmt.Errorf("failed to connect to upstream: %w", err)
+		return nil, fmt.Errorf("failed to connect to upstream for certificate sniffing: %w", err)
 	}
 	defer conn.Close()
 

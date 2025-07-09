@@ -5,8 +5,11 @@ import (
 	"crypto/tls"
 	"fmt"
 	"net"
+	"strings"
 	"sync"
 	"time"
+
+	tlsverify "github.com/iamgaru/gander/internal/tls"
 )
 
 // ConnectionPool manages reusable network connections
@@ -18,6 +21,7 @@ type ConnectionPool struct {
 	dialTimeout  time.Duration
 	enableDebug  bool
 	stats        *PoolStats
+	smartTLS     *tlsverify.SmartTLSConfig
 }
 
 // targetPool holds connections for a specific target
@@ -85,12 +89,22 @@ func NewConnectionPool(config *PoolConfig) *ConnectionPool {
 		dialTimeout: config.DialTimeout,
 		enableDebug: config.EnableDebug,
 		stats:       &PoolStats{},
+		smartTLS:    tlsverify.NewSmartTLSConfig(config.EnableDebug),
 	}
 
 	// Start cleanup goroutine
 	go pool.cleanupWorker(config.CleanupInterval)
 
 	return pool
+}
+
+// extractDomainFromTarget extracts the domain/hostname from a target address
+func extractDomainFromTarget(target string) string {
+	// Remove port if present
+	if idx := strings.LastIndex(target, ":"); idx != -1 {
+		return target[:idx]
+	}
+	return target
 }
 
 // GetConnection gets a connection from the pool or creates a new one
@@ -111,11 +125,13 @@ func (cp *ConnectionPool) GetConnection(ctx context.Context, target string, useT
 	var err error
 
 	if useTLS {
+		// Extract domain from target for smart TLS verification
+		domain := extractDomainFromTarget(target)
+		tlsConfig := cp.smartTLS.CreateTLSConfig(domain, tlsverify.TLSContextPooling)
+		
 		conn, err = tls.DialWithDialer(&net.Dialer{
 			Timeout: cp.dialTimeout,
-		}, "tcp", target, &tls.Config{
-			InsecureSkipVerify: true,
-		})
+		}, "tcp", target, tlsConfig)
 	} else {
 		conn, err = net.DialTimeout("tcp", target, cp.dialTimeout)
 	}

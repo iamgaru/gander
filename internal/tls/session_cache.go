@@ -444,6 +444,7 @@ func NewTLSConfigBuilder(sessionCache *SessionCache, enableDebug bool) *TLSConfi
 }
 
 // BuildClientConfig creates an optimized TLS config for client connections
+// DEPRECATED: Use SmartTLSConfig.CreateTLSConfigWithSessionCache instead
 func (tcb *TLSConfigBuilder) BuildClientConfig(serverName string, insecureSkipVerify bool) *tls.Config {
 	cfg := &tls.Config{
 		ServerName:         serverName,
