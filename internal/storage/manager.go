@@ -131,6 +131,21 @@ type StorageMetrics struct {
 	AverageWriteTime   float64   `json:"average_write_time_ms"`
 }
 
+// StorageMetricsSnapshot represents a snapshot of storage metrics without mutex
+type StorageMetricsSnapshot struct {
+	FilesCreated       int64     `json:"files_created"`
+	FilesCompressed    int64     `json:"files_compressed"`
+	FilesRolled        int64     `json:"files_rolled"`
+	FilesDeleted       int64     `json:"files_deleted"`
+	BytesWritten       int64     `json:"bytes_written"`
+	BytesCompressed    int64     `json:"bytes_compressed"`
+	CompressionRatio   float64   `json:"compression_ratio"`
+	CurrentStorageSize int64     `json:"current_storage_size"`
+	LastCleanup        time.Time `json:"last_cleanup"`
+	WriteErrors        int64     `json:"write_errors"`
+	AverageWriteTime   float64   `json:"average_write_time_ms"`
+}
+
 // FileWriter manages individual file writing with compression and rolling
 type FileWriter struct {
 	filePath    string
@@ -583,10 +598,23 @@ func (sm *StorageManager) updateMetrics(bytesWritten int64, writeTimeMs float64)
 }
 
 // GetMetrics returns current storage metrics
-func (sm *StorageManager) GetMetrics() StorageMetrics {
+func (sm *StorageManager) GetMetrics() StorageMetricsSnapshot {
 	sm.metrics.mutex.RLock()
 	defer sm.metrics.mutex.RUnlock()
-	return *sm.metrics
+	
+	return StorageMetricsSnapshot{
+		FilesCreated:       sm.metrics.FilesCreated,
+		FilesCompressed:    sm.metrics.FilesCompressed,
+		FilesRolled:        sm.metrics.FilesRolled,
+		FilesDeleted:       sm.metrics.FilesDeleted,
+		BytesWritten:       sm.metrics.BytesWritten,
+		BytesCompressed:    sm.metrics.BytesCompressed,
+		CompressionRatio:   sm.metrics.CompressionRatio,
+		CurrentStorageSize: sm.metrics.CurrentStorageSize,
+		LastCleanup:        sm.metrics.LastCleanup,
+		WriteErrors:        sm.metrics.WriteErrors,
+		AverageWriteTime:   sm.metrics.AverageWriteTime,
+	}
 }
 
 // cleanupRoutine runs periodic cleanup of old files
