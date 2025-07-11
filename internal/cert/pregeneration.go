@@ -53,6 +53,19 @@ type PreGenerationStats struct {
 	LastPreGenBatch    time.Time
 }
 
+// PreGenerationStatsSnapshot represents a snapshot of pregeneration statistics without mutex
+type PreGenerationStatsSnapshot struct {
+	TotalPreGenerated  int64
+	CacheHitsSaved     int64
+	QueuedDomains      int64
+	FailedGenerations  int64
+	AverageGenTime     time.Duration
+	PopularDomainCount int
+	FrequencyMapSize   int
+	WorkerUtilization  float64
+	LastPreGenBatch    time.Time
+}
+
 // preGenWorker handles certificate generation in background
 type preGenWorker struct {
 	id      int
@@ -347,11 +360,9 @@ func (pgm *PreGenerationManager) preGeneratePopularDomains() {
 }
 
 // GetStats returns current pre-generation statistics
-func (pgm *PreGenerationManager) GetStats() PreGenerationStats {
+func (pgm *PreGenerationManager) GetStats() PreGenerationStatsSnapshot {
 	pgm.stats.mutex.RLock()
 	defer pgm.stats.mutex.RUnlock()
-
-	stats := *pgm.stats
 
 	// Calculate worker utilization
 	activeWorkers := 0
@@ -365,8 +376,22 @@ func (pgm *PreGenerationManager) GetStats() PreGenerationStats {
 		}
 	}
 
+	workerUtilization := float64(0)
 	if len(pgm.workers) > 0 {
-		stats.WorkerUtilization = float64(activeWorkers) / float64(len(pgm.workers))
+		workerUtilization = float64(activeWorkers) / float64(len(pgm.workers))
+	}
+
+	// Create snapshot without copying mutex
+	stats := PreGenerationStatsSnapshot{
+		TotalPreGenerated:  pgm.stats.TotalPreGenerated,
+		CacheHitsSaved:     pgm.stats.CacheHitsSaved,
+		QueuedDomains:      pgm.stats.QueuedDomains,
+		FailedGenerations:  pgm.stats.FailedGenerations,
+		AverageGenTime:     pgm.stats.AverageGenTime,
+		PopularDomainCount: pgm.stats.PopularDomainCount,
+		FrequencyMapSize:   pgm.stats.FrequencyMapSize,
+		WorkerUtilization:  workerUtilization,
+		LastPreGenBatch:    pgm.stats.LastPreGenBatch,
 	}
 
 	return stats

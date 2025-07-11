@@ -45,6 +45,19 @@ type SessionCacheStats struct {
 	AverageSessionLife time.Duration
 }
 
+// SessionCacheStatsSnapshot represents a snapshot of session cache statistics without mutex
+type SessionCacheStatsSnapshot struct {
+	TotalSessions      int64
+	ActiveSessions     int64
+	SessionHits        int64
+	SessionMisses      int64
+	SessionsCreated    int64
+	SessionsExpired    int64
+	TicketKeyRotations int64
+	ResumptionRate     float64
+	AverageSessionLife time.Duration
+}
+
 // SessionCacheConfig contains configuration for the session cache
 type SessionCacheConfig struct {
 	MaxSessions       int
@@ -306,7 +319,7 @@ func (sc *SessionCache) ticketKeyRotationWorker(interval time.Duration) {
 }
 
 // GetStats returns current session cache statistics
-func (sc *SessionCache) GetStats() SessionCacheStats {
+func (sc *SessionCache) GetStats() SessionCacheStatsSnapshot {
 	sc.stats.mutex.RLock()
 	defer sc.stats.mutex.RUnlock()
 
@@ -314,8 +327,8 @@ func (sc *SessionCache) GetStats() SessionCacheStats {
 	activeSessions := int64(len(sc.sessions))
 	sc.sessionsMutex.RUnlock()
 
-	// Create a copy without copying the mutex
-	stats := SessionCacheStats{
+	// Create a snapshot without copying the mutex
+	stats := SessionCacheStatsSnapshot{
 		TotalSessions:      sc.stats.TotalSessions,
 		ActiveSessions:     activeSessions,
 		SessionHits:        sc.stats.SessionHits,
