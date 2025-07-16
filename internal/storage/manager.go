@@ -601,7 +601,7 @@ func (sm *StorageManager) updateMetrics(bytesWritten int64, writeTimeMs float64)
 func (sm *StorageManager) GetMetrics() StorageMetricsSnapshot {
 	sm.metrics.mutex.RLock()
 	defer sm.metrics.mutex.RUnlock()
-
+	
 	return StorageMetricsSnapshot{
 		FilesCreated:       sm.metrics.FilesCreated,
 		FilesCompressed:    sm.metrics.FilesCompressed,

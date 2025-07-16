@@ -436,19 +436,26 @@ func (r *Relayer) HandleHTTPSInspection(clientConn net.Conn, serverAddr string, 
 
 // handleHTTPSTraffic handles HTTP traffic over TLS connections
 func (r *Relayer) handleHTTPSTraffic(clientConn, serverConn *tls.Conn, info *ConnectionInfo) error {
+	// For robustness, set read timeouts to prevent hanging on partial requests
+	clientConn.SetReadDeadline(time.Now().Add(30 * time.Second))
+	serverConn.SetReadDeadline(time.Now().Add(30 * time.Second))
+	
 	clientReader := bufio.NewReader(clientConn)
 	serverReader := bufio.NewReader(serverConn)
 
-	for {
-		// Read HTTP request from client
-		req, err := http.ReadRequest(clientReader)
-		if err != nil {
-			if err == io.EOF {
-				return nil
-			}
-			return fmt.Errorf("failed to read HTTPS request: %w", err)
+	// Try to parse the first request to see if this is HTTP/1.1 or something else
+	req, err := http.ReadRequest(clientReader)
+	if err != nil {
+		// If we can't parse the first request, it's likely HTTP/2 or binary data
+		// Use bidirectional relay for the entire connection
+		if r.enableDebug {
+			log.Printf("First request parse failed for %s: %v, using bidirectional relay", info.Domain, err)
 		}
+		return r.bidirectionalRelay(clientConn, serverConn, info)
+	}
 
+	// First request parsed successfully, continue with HTTP/1.1 inspection
+	for {
 		// Capture request if handler is available
 		if r.captureHandler != nil {
 			if err := r.captureHandler.CaptureHTTPRequest(req, info.ClientIP); err != nil {
@@ -484,6 +491,20 @@ func (r *Relayer) handleHTTPSTraffic(clientConn, serverConn *tls.Conn, info *Con
 			resp.Header.Get("Connection") == connectionClose ||
 			req.ProtoMajor == 1 && req.ProtoMinor == 0 {
 			break
+		}
+		
+		// Try to read the next request
+		req, err = http.ReadRequest(clientReader)
+		if err != nil {
+			if err == io.EOF {
+				return nil
+			}
+			// If we can't parse subsequent requests, the connection might have upgraded
+			// to HTTP/2 or WebSocket. Switch to bidirectional relay for remainder.
+			if r.enableDebug {
+				log.Printf("Subsequent request parse failed for %s: %v, switching to bidirectional relay", info.Domain, err)
+			}
+			return r.bidirectionalRelay(clientConn, serverConn, info)
 		}
 	}
 
