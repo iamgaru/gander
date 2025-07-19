@@ -2,6 +2,7 @@ package identity
 
 import (
 	"context"
+	"log"
 	"time"
 )
 
@@ -229,7 +230,7 @@ func (im *IdentityManager) enrichIdentities(ctx context.Context, identityCtx *Id
 		for _, provider := range im.providers {
 			if provider.Type() == identity.Type {
 				enrichCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
-				provider.EnrichIdentity(enrichCtx, identity)
+				_ = provider.EnrichIdentity(enrichCtx, identity)
 				cancel()
 				break
 			}
@@ -272,6 +273,7 @@ func (im *IdentityManager) Shutdown() error {
 	for _, provider := range im.providers {
 		if err := provider.Shutdown(); err != nil {
 			// Log error but continue shutting down other providers
+			log.Printf("Error shutting down provider: %v", err)
 		}
 	}
 	return nil

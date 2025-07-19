@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net"
 	"os/exec"
 	"regexp"
@@ -114,12 +115,14 @@ func (p *IPMACProvider) Initialize(config map[string]interface{}) error {
 		// Initial ARP table scan
 		if err := p.scanARPTable(); err != nil {
 			// Log error but don't fail initialization
+			log.Printf("Failed to scan ARP table: %v", err)
 		}
 
 		// Load device database if configured
 		if p.config.DeviceDatabase != "" {
 			if err := p.loadDeviceDatabase(); err != nil {
 				// Log error but don't fail initialization
+				log.Printf("Failed to load device database: %v", err)
 			}
 		}
 
@@ -196,7 +199,9 @@ func (p *IPMACProvider) EnrichIdentity(ctx context.Context, ident *identity.Iden
 
 	// Refresh ARP table if needed
 	if time.Since(p.lastARPScan) > p.config.ARPScanInterval {
-		go p.scanARPTable()
+		go func() {
+			_ = p.scanARPTable()
+		}()
 	}
 
 	// Add network context
@@ -425,10 +430,8 @@ func (p *IPMACProvider) refreshLoop() {
 	defer ticker.Stop()
 
 	for p.enabled {
-		select {
-		case <-ticker.C:
-			p.scanARPTable()
-		}
+		<-ticker.C
+		_ = p.scanARPTable()
 	}
 }
 

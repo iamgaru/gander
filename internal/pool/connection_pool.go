@@ -28,7 +28,6 @@ type ConnectionPool struct {
 type targetPool struct {
 	target      string
 	connections chan *pooledConnection
-	mutex       sync.RWMutex
 	created     int
 	maxSize     int
 }

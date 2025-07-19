@@ -437,11 +437,6 @@ func (w *Worker) updateAverageLatency(latency int64) {
 	}
 }
 
-// stop stops the worker
-func (w *Worker) stop() {
-	close(w.quit)
-}
-
 // AdaptiveWorkerPool provides dynamic worker scaling based on load
 type AdaptiveWorkerPool struct {
 	*WorkerPool
