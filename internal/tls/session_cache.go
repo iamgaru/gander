@@ -443,14 +443,6 @@ func (scs *SessionCacheStats) recordTicketKeyRotation() {
 	scs.mutex.Unlock()
 }
 
-// Helper function
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}
-
 // Enhanced TLS Config Builder
 type TLSConfigBuilder struct {
 	sessionCache *SessionCache
