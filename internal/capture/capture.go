@@ -188,10 +188,10 @@ func DefaultCaptureConfig() *CaptureConfig {
 		CircuitBreakerThreshold: 5,                  // Open circuit after 5 consecutive failures
 		CircuitBreakerCooldown:  30 * time.Second,   // Wait 30s before trying again
 
-		// File organization configurations with modern defaults
-		FileOrganization: FileOrgHierarchical,  // Use domain/date/type structure
-		FileNaming:       FileNamingSimplified, // Use simplified naming
-		EnableGzipFiles:  true,                 // Compress files for storage efficiency
+		// File organization configurations with backward-compatible defaults
+		FileOrganization: FileOrgFlat,      // Keep flat structure for compatibility
+		FileNaming:       FileNamingLegacy,  // Use legacy naming for compatibility
+		EnableGzipFiles:  false,             // No compression by default for compatibility
 	}
 }
 
