@@ -11,7 +11,7 @@ import (
 
 // SmartCaptureWrapper wraps the existing capture handler with smart inspection logic
 type SmartCaptureWrapper struct {
-	inspector      *ContentInspector
+	inspector       *ContentInspector
 	originalHandler CaptureHandler
 }
 
@@ -34,7 +34,7 @@ func (w *SmartCaptureWrapper) CaptureHTTPRequest(req *http.Request, clientIP str
 	if !w.shouldCaptureRequest(req) {
 		return nil // Skip capture based on inspection rules
 	}
-	
+
 	return w.originalHandler.CaptureHTTPRequest(req, clientIP)
 }
 
@@ -43,7 +43,7 @@ func (w *SmartCaptureWrapper) CaptureHTTPResponse(resp *http.Response, clientIP 
 	if !w.shouldCaptureResponse(resp) {
 		return nil // Skip capture based on inspection rules
 	}
-	
+
 	return w.originalHandler.CaptureHTTPResponse(resp, clientIP)
 }
 
@@ -51,7 +51,7 @@ func (w *SmartCaptureWrapper) CaptureHTTPResponse(resp *http.Response, clientIP 
 func (w *SmartCaptureWrapper) shouldCaptureRequest(req *http.Request) bool {
 	ctx := w.createInspectionContext(req.URL, req.Header, req.ContentLength)
 	result := w.inspector.InspectContent(ctx)
-	
+
 	return result.Decision == DecisionInspect || result.Decision == DecisionConditional
 }
 
@@ -61,10 +61,10 @@ func (w *SmartCaptureWrapper) shouldCaptureResponse(resp *http.Response) bool {
 	if resp.Request != nil {
 		reqURL = resp.Request.URL
 	}
-	
+
 	ctx := w.createInspectionContext(reqURL, resp.Header, resp.ContentLength)
 	result := w.inspector.InspectContent(ctx)
-	
+
 	return result.Decision == DecisionInspect || result.Decision == DecisionConditional
 }
 
@@ -75,17 +75,17 @@ func (w *SmartCaptureWrapper) createInspectionContext(reqURL *url.URL, headers h
 		ContentSize: contentLength,
 		IsStreaming: contentLength < 0,
 	}
-	
+
 	if reqURL != nil {
 		ctx.URL = reqURL.String()
 		ctx.Domain = reqURL.Host
 	}
-	
+
 	// Get content type from headers
 	if contentType := headers.Get("Content-Type"); contentType != "" {
 		ctx.ContentType = contentType
 	}
-	
+
 	return ctx
 }
 
@@ -111,7 +111,7 @@ func (m *InspectionMiddleware) ShouldInspectRequest(req *http.Request) *Inspecti
 		Headers:     req.Header,
 		IsStreaming: req.ContentLength < 0,
 	}
-	
+
 	return m.inspector.InspectContent(ctx)
 }
 
@@ -121,19 +121,19 @@ func (m *InspectionMiddleware) ShouldInspectResponse(resp *http.Response) *Inspe
 	if resp.Request != nil {
 		reqURL = resp.Request.URL
 	}
-	
+
 	ctx := &InspectionContext{
 		ContentType: resp.Header.Get("Content-Type"),
 		ContentSize: resp.ContentLength,
 		Headers:     resp.Header,
 		IsStreaming: resp.ContentLength < 0,
 	}
-	
+
 	if reqURL != nil {
 		ctx.URL = reqURL.String()
 		ctx.Domain = reqURL.Host
 	}
-	
+
 	return m.inspector.InspectContent(ctx)
 }
 
@@ -157,13 +157,13 @@ func IsStaticContent(contentType string) bool {
 		"application/zip",
 		"application/pdf",
 	}
-	
+
 	for _, staticType := range staticTypes {
 		if strings.HasPrefix(contentType, staticType) {
 			return true
 		}
 	}
-	
+
 	return false
 }
 
@@ -174,7 +174,7 @@ func GetContentCategory(contentType string) string {
 		contentType = contentType[:idx]
 	}
 	contentType = strings.TrimSpace(contentType)
-	
+
 	switch {
 	case strings.HasPrefix(contentType, "text/"):
 		return "text"
@@ -198,7 +198,7 @@ func GetContentCategory(contentType string) string {
 // GetInspectionPriority returns priority level for content inspection
 func GetInspectionPriority(contentType string) int {
 	category := GetContentCategory(contentType)
-	
+
 	switch category {
 	case "text", "script", "data":
 		return 1 // High priority

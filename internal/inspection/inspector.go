@@ -159,7 +159,6 @@ func (ci *ContentInspector) isImageContentType(contentType string) bool {
 	return strings.HasPrefix(mediaType, "image/")
 }
 
-
 // GetStreamingInspectSize returns the number of bytes to inspect for streaming content
 func (ci *ContentInspector) GetStreamingInspectSize(domain string) int64 {
 	rules := ci.getApplicableRules(domain)
@@ -184,7 +183,7 @@ type InspectionResult struct {
 // InspectContent performs comprehensive content inspection
 func (ci *ContentInspector) InspectContent(ctx *InspectionContext) *InspectionResult {
 	decision := ci.ShouldInspect(ctx)
-	
+
 	result := &InspectionResult{
 		Decision: decision,
 	}
@@ -221,7 +220,7 @@ func (ci *ContentInspector) shouldQueueForAI(ctx *InspectionContext) bool {
 	}
 
 	mediaType, _, _ := mime.ParseMediaType(ctx.ContentType)
-	
+
 	// Check if content type is supported for AI analysis
 	for _, analysisType := range ci.config.AIPreparation.SupportedAnalysis {
 		switch analysisType {
@@ -313,9 +312,9 @@ func (d Decision) String() string {
 
 // AIQueue represents the file-based AI analysis queue
 type AIQueue struct {
-	config    *config.AIPreparationConfig
-	queueDir  string
-	maxSize   int
+	config      *config.AIPreparationConfig
+	queueDir    string
+	maxSize     int
 	currentSize int
 }
 
@@ -393,4 +392,3 @@ func (aq *AIQueue) QueueForAnalysis(ctx *InspectionContext, content []byte) (*Qu
 	aq.currentSize++
 	return item, nil
 }
-

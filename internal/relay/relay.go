@@ -439,7 +439,7 @@ func (r *Relayer) handleHTTPSTraffic(clientConn, serverConn *tls.Conn, info *Con
 	// For robustness, set read timeouts to prevent hanging on partial requests
 	clientConn.SetReadDeadline(time.Now().Add(30 * time.Second))
 	serverConn.SetReadDeadline(time.Now().Add(30 * time.Second))
-	
+
 	clientReader := bufio.NewReader(clientConn)
 	serverReader := bufio.NewReader(serverConn)
 
@@ -492,7 +492,7 @@ func (r *Relayer) handleHTTPSTraffic(clientConn, serverConn *tls.Conn, info *Con
 			req.ProtoMajor == 1 && req.ProtoMinor == 0 {
 			break
 		}
-		
+
 		// Try to read the next request
 		req, err = http.ReadRequest(clientReader)
 		if err != nil {

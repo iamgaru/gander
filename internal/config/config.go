@@ -162,13 +162,13 @@ type URLPatternsConfig struct {
 
 // AIPreparationConfig contains AI analysis preparation settings
 type AIPreparationConfig struct {
-	Enabled             bool     `json:"enabled"`
-	MetadataCapture     bool     `json:"metadata_capture"`
-	ContentPreviewSize  string   `json:"content_preview_size"`  // e.g., "1KB"
-	QueueDirectory      string   `json:"queue_directory"`       // File-based queue location
-	SupportedAnalysis   []string `json:"supported_analysis"`    // e.g., ["image_ocr", "video_transcript"]
-	MaxQueueSize        int      `json:"max_queue_size"`        // Max files in queue
-	CleanupAfterDays    int      `json:"cleanup_after_days"`    // Auto-cleanup old files
+	Enabled            bool     `json:"enabled"`
+	MetadataCapture    bool     `json:"metadata_capture"`
+	ContentPreviewSize string   `json:"content_preview_size"` // e.g., "1KB"
+	QueueDirectory     string   `json:"queue_directory"`      // File-based queue location
+	SupportedAnalysis  []string `json:"supported_analysis"`   // e.g., ["image_ocr", "video_transcript"]
+	MaxQueueSize       int      `json:"max_queue_size"`       // Max files in queue
+	CleanupAfterDays   int      `json:"cleanup_after_days"`   // Auto-cleanup old files
 }
 
 // Config is the main configuration structure
