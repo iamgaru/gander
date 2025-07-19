@@ -223,12 +223,12 @@ func TestStreamingInspector(t *testing.T) {
 
 	// Write some test data
 	testData := []byte("This is a test streaming content that is longer than 10 bytes")
-	
+
 	n, err := streamInspector.Write(testData)
 	if err != nil {
 		t.Fatalf("Write() error = %v", err)
 	}
-	
+
 	if n != len(testData) {
 		t.Errorf("Write() returned %d, expected %d", n, len(testData))
 	}

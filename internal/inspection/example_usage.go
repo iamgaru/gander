@@ -115,11 +115,11 @@ func ExampleUsage() {
 	}
 
 	streamingInspector := inspector.NewStreamingInspector(streamingContext)
-	
+
 	// Simulate streaming data
 	sampleData := []byte(`{"data": "example streaming content"}`)
 	streamingInspector.Write(sampleData)
-	
+
 	if streamingInspector.IsDone() {
 		collectedData := streamingInspector.GetCollectedData()
 		log.Printf("Collected streaming data: %d bytes", len(collectedData))
@@ -130,63 +130,63 @@ func ExampleUsage() {
 func IntegrateWithRelay() {
 	// This is a conceptual example of how you might integrate the inspection system
 	// with the existing relay handler in HandleHTTPSInspection
-	
+
 	/*
-	func (r *Relayer) HandleHTTPSInspection(clientConn net.Conn, serverAddr string, info *ConnectionInfo) error {
-		// ... existing TLS setup code ...
-		
-		// Create content inspector
-		inspector := NewContentInspector(r.config.Inspection)
-		
-		// ... handle HTTP requests ...
-		
-		for {
-			req, err := http.ReadRequest(clientReader)
-			if err != nil {
-				// Handle error
-				break
-			}
-			
-			// Create inspection context
-			ctx := &InspectionContext{
-				URL:         req.URL.String(),
-				Domain:      info.Domain,
-				ContentType: req.Header.Get("Content-Type"),
-				ContentSize: req.ContentLength,
-				Headers:     req.Header,
-				IsStreaming: req.ContentLength < 0,
-			}
-			
-			// Make inspection decision
-			result := inspector.InspectContent(ctx)
-			
-			switch result.Decision {
-			case DecisionSkip:
-				// Skip inspection, use fast relay
-				log.Printf("Skipping inspection for %s: %s", ctx.URL, result.Reason)
-				// Forward request without inspection
-				
-			case DecisionInspect:
-				// Full inspection
-				log.Printf("Inspecting %s: %s", ctx.URL, result.Reason)
-				// Capture and inspect content
-				
-			case DecisionConditional:
-				// Conditional inspection based on first bytes
-				log.Printf("Conditional inspection for %s: %s", ctx.URL, result.Reason)
-				if ctx.IsStreaming {
-					// Use streaming inspector
-					streamInspector := inspector.NewStreamingInspector(ctx)
-					// ... handle streaming inspection ...
+		func (r *Relayer) HandleHTTPSInspection(clientConn net.Conn, serverAddr string, info *ConnectionInfo) error {
+			// ... existing TLS setup code ...
+
+			// Create content inspector
+			inspector := NewContentInspector(r.config.Inspection)
+
+			// ... handle HTTP requests ...
+
+			for {
+				req, err := http.ReadRequest(clientReader)
+				if err != nil {
+					// Handle error
+					break
 				}
+
+				// Create inspection context
+				ctx := &InspectionContext{
+					URL:         req.URL.String(),
+					Domain:      info.Domain,
+					ContentType: req.Header.Get("Content-Type"),
+					ContentSize: req.ContentLength,
+					Headers:     req.Header,
+					IsStreaming: req.ContentLength < 0,
+				}
+
+				// Make inspection decision
+				result := inspector.InspectContent(ctx)
+
+				switch result.Decision {
+				case DecisionSkip:
+					// Skip inspection, use fast relay
+					log.Printf("Skipping inspection for %s: %s", ctx.URL, result.Reason)
+					// Forward request without inspection
+
+				case DecisionInspect:
+					// Full inspection
+					log.Printf("Inspecting %s: %s", ctx.URL, result.Reason)
+					// Capture and inspect content
+
+				case DecisionConditional:
+					// Conditional inspection based on first bytes
+					log.Printf("Conditional inspection for %s: %s", ctx.URL, result.Reason)
+					if ctx.IsStreaming {
+						// Use streaming inspector
+						streamInspector := inspector.NewStreamingInspector(ctx)
+						// ... handle streaming inspection ...
+					}
+				}
+
+				// ... rest of request handling ...
 			}
-			
-			// ... rest of request handling ...
+
+			return nil
 		}
-		
-		return nil
-	}
 	*/
-	
+
 	log.Println("Integration example provided in comments above")
 }
