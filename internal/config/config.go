@@ -130,6 +130,47 @@ type WorkerPoolConfig struct {
 	JobTimeoutSec int  `json:"job_timeout_seconds"`
 }
 
+// InspectionConfig contains smart content inspection settings
+type InspectionConfig struct {
+	GlobalRules     InspectionRules            `json:"global_rules"`
+	DomainOverrides map[string]InspectionRules `json:"domain_overrides"`
+	AIPreparation   AIPreparationConfig        `json:"ai_preparation"`
+}
+
+// InspectionRules defines what content should be inspected
+type InspectionRules struct {
+	AlwaysInspect      []string          `json:"always_inspect"`
+	ConditionalInspect []string          `json:"conditional_inspect"`
+	NeverInspect       []string          `json:"never_inspect"`
+	SizeLimits         SizeLimitsConfig  `json:"size_limits"`
+	URLPatterns        URLPatternsConfig `json:"url_patterns"`
+}
+
+// SizeLimitsConfig defines size thresholds for inspection
+type SizeLimitsConfig struct {
+	MaxInspectSize        string `json:"max_inspect_size"`        // e.g., "10MB"
+	ImageMaxSize          string `json:"image_max_size"`          // e.g., "5MB"
+	StreamingBufferSize   string `json:"streaming_buffer_size"`   // e.g., "1MB"
+	StreamingInspectBytes string `json:"streaming_inspect_bytes"` // e.g., "4KB"
+}
+
+// URLPatternsConfig defines URL-based inspection rules
+type URLPatternsConfig struct {
+	ForceInspect []string `json:"force_inspect"` // Regex patterns to always inspect
+	ForceSkip    []string `json:"force_skip"`    // Regex patterns to never inspect
+}
+
+// AIPreparationConfig contains AI analysis preparation settings
+type AIPreparationConfig struct {
+	Enabled             bool     `json:"enabled"`
+	MetadataCapture     bool     `json:"metadata_capture"`
+	ContentPreviewSize  string   `json:"content_preview_size"`  // e.g., "1KB"
+	QueueDirectory      string   `json:"queue_directory"`       // File-based queue location
+	SupportedAnalysis   []string `json:"supported_analysis"`    // e.g., ["image_ocr", "video_transcript"]
+	MaxQueueSize        int      `json:"max_queue_size"`        // Max files in queue
+	CleanupAfterDays    int      `json:"cleanup_after_days"`    // Auto-cleanup old files
+}
+
 // Config is the main configuration structure
 type Config struct {
 	Proxy       ProxyConfig            `json:"proxy"`
@@ -138,6 +179,7 @@ type Config struct {
 	Filters     FiltersConfig          `json:"filters"`
 	Providers   map[string]interface{} `json:"providers"`
 	Performance PerformanceConfig      `json:"performance"`
+	Inspection  InspectionConfig       `json:"inspection"`
 
 	// Legacy support - will be mapped to built-in providers
 	Rules LegacyRulesConfig `json:"rules"`
@@ -191,6 +233,9 @@ func (c *Config) SetDefaults() {
 
 	// Performance defaults
 	c.setPerformanceDefaults()
+
+	// Inspection defaults
+	c.setInspectionDefaults()
 }
 
 // Validate validates the configuration
@@ -416,6 +461,97 @@ func (c *Config) setPerformanceDefaults() {
 	}
 	if c.Performance.WorkerPool.JobTimeoutSec == 0 {
 		c.Performance.WorkerPool.JobTimeoutSec = 30
+	}
+}
+
+// setInspectionDefaults sets default values for content inspection
+func (c *Config) setInspectionDefaults() {
+	// Global inspection rules defaults
+	if len(c.Inspection.GlobalRules.AlwaysInspect) == 0 {
+		c.Inspection.GlobalRules.AlwaysInspect = []string{
+			"text/html",
+			"text/plain",
+			"application/json",
+			"application/xml",
+			"text/xml",
+			"application/javascript",
+			"text/javascript",
+			"text/css",
+		}
+	}
+
+	if len(c.Inspection.GlobalRules.ConditionalInspect) == 0 {
+		c.Inspection.GlobalRules.ConditionalInspect = []string{
+			"image/jpeg",
+			"image/png",
+			"image/gif",
+			"image/webp",
+			"image/svg+xml",
+			"video/mp4",
+			"video/webm",
+			"video/avi",
+		}
+	}
+
+	if len(c.Inspection.GlobalRules.NeverInspect) == 0 {
+		c.Inspection.GlobalRules.NeverInspect = []string{
+			"application/octet-stream",
+			"application/zip",
+			"application/x-rar-compressed",
+			"application/x-7z-compressed",
+			"application/pdf",
+			"application/msword",
+			"application/vnd.ms-excel",
+			"application/vnd.ms-powerpoint",
+			"font/woff",
+			"font/woff2",
+			"font/ttf",
+			"font/otf",
+		}
+	}
+
+	// Size limits defaults
+	if c.Inspection.GlobalRules.SizeLimits.MaxInspectSize == "" {
+		c.Inspection.GlobalRules.SizeLimits.MaxInspectSize = "10MB"
+	}
+	if c.Inspection.GlobalRules.SizeLimits.ImageMaxSize == "" {
+		c.Inspection.GlobalRules.SizeLimits.ImageMaxSize = "5MB"
+	}
+	if c.Inspection.GlobalRules.SizeLimits.StreamingBufferSize == "" {
+		c.Inspection.GlobalRules.SizeLimits.StreamingBufferSize = "1MB"
+	}
+	if c.Inspection.GlobalRules.SizeLimits.StreamingInspectBytes == "" {
+		c.Inspection.GlobalRules.SizeLimits.StreamingInspectBytes = "4KB"
+	}
+
+	// URL patterns defaults (empty by default)
+	if c.Inspection.GlobalRules.URLPatterns.ForceInspect == nil {
+		c.Inspection.GlobalRules.URLPatterns.ForceInspect = []string{}
+	}
+	if c.Inspection.GlobalRules.URLPatterns.ForceSkip == nil {
+		c.Inspection.GlobalRules.URLPatterns.ForceSkip = []string{}
+	}
+
+	// Domain overrides defaults (empty by default)
+	if c.Inspection.DomainOverrides == nil {
+		c.Inspection.DomainOverrides = make(map[string]InspectionRules)
+	}
+
+	// AI preparation defaults
+	if c.Inspection.AIPreparation.ContentPreviewSize == "" {
+		c.Inspection.AIPreparation.ContentPreviewSize = "1KB"
+	}
+	if c.Inspection.AIPreparation.QueueDirectory == "" {
+		c.Inspection.AIPreparation.QueueDirectory = "ai_queue"
+	}
+	if len(c.Inspection.AIPreparation.SupportedAnalysis) == 0 {
+		c.Inspection.AIPreparation.SupportedAnalysis = []string{"image_ocr", "video_transcript"}
+	}
+	if c.Inspection.AIPreparation.MaxQueueSize == 0 {
+		c.Inspection.AIPreparation.MaxQueueSize = 1000
+	}
+	if c.Inspection.AIPreparation.CleanupAfterDays == 0 {
+		c.Inspection.AIPreparation.CleanupAfterDays = 7
 	}
 }
 

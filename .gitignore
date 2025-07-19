@@ -54,8 +54,7 @@ conf/config.json
 config.json
 
 # Development captures and test data
-captures/archived/development/
-captures/current/
+captures/
 *.capture
 
 # Certificate files (security)
@@ -68,4 +67,8 @@ certs/*.pem
 *.debug
 *_test.json
 temp_*
+test_*.go
+test_*.sh
+format.sh
+gander_test
 

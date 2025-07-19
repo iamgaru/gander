@@ -29,7 +29,15 @@
       "Bash(gofmt:*)",
       "Bash(go mod:*)",
       "Bash(git push:*)",
-      "Bash(go vet:*)"
+      "Bash(go vet:*)",
+      "Bash(git --version)",
+      "Bash(/usr/bin/git status)",
+      "Bash(git version:*)",
+      "Bash(bash -c \"git --version\")",
+      "Bash(/usr/bin/git --version)",
+      "Bash(exec gofmt -s -l .)",
+      "Bash(go fmt:*)",
+      "Bash(./format.sh)"
     ],
     "deny": []
   }

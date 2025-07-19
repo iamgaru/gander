@@ -59,6 +59,19 @@ type WorkerPoolStats struct {
 	CurrentQueueLen int
 }
 
+// WorkerPoolStatsSnapshot represents a snapshot of worker pool statistics without mutex
+type WorkerPoolStatsSnapshot struct {
+	TotalJobs       int64
+	ProcessedJobs   int64
+	FailedJobs      int64
+	QueuedJobs      int64
+	ActiveWorkers   int32
+	IdleWorkers     int32
+	AverageLatency  int64
+	MaxQueueSize    int
+	CurrentQueueLen int
+}
+
 // WorkerStats tracks individual worker performance
 type WorkerStats struct {
 	JobsProcessed int64
@@ -67,6 +80,15 @@ type WorkerStats struct {
 	LastJobTime   time.Time
 	IsActive      bool
 	mutex         sync.RWMutex
+}
+
+// WorkerStatsSnapshot represents a snapshot of worker statistics without mutex
+type WorkerStatsSnapshot struct {
+	JobsProcessed int64
+	JobsFailed    int64
+	TotalWorkTime time.Duration
+	LastJobTime   time.Time
+	IsActive      bool
 }
 
 // WorkerPoolConfig contains configuration for the worker pool
@@ -226,24 +248,37 @@ func (wp *WorkerPool) Stop(timeout time.Duration) error {
 }
 
 // GetStats returns current worker pool statistics
-func (wp *WorkerPool) GetStats() WorkerPoolStats {
+func (wp *WorkerPool) GetStats() WorkerPoolStatsSnapshot {
 	wp.stats.mutex.RLock()
 	defer wp.stats.mutex.RUnlock()
 
-	stats := *wp.stats
-	stats.CurrentQueueLen = len(wp.jobQueue)
-	stats.ActiveWorkers = atomic.LoadInt32(&wp.stats.ActiveWorkers)
-	stats.IdleWorkers = atomic.LoadInt32(&wp.stats.IdleWorkers)
+	stats := WorkerPoolStatsSnapshot{
+		TotalJobs:       wp.stats.TotalJobs,
+		ProcessedJobs:   wp.stats.ProcessedJobs,
+		FailedJobs:      wp.stats.FailedJobs,
+		QueuedJobs:      wp.stats.QueuedJobs,
+		ActiveWorkers:   atomic.LoadInt32(&wp.stats.ActiveWorkers),
+		IdleWorkers:     atomic.LoadInt32(&wp.stats.IdleWorkers),
+		AverageLatency:  wp.stats.AverageLatency,
+		MaxQueueSize:    wp.stats.MaxQueueSize,
+		CurrentQueueLen: len(wp.jobQueue),
+	}
 
 	return stats
 }
 
 // GetWorkerStats returns statistics for all workers
-func (wp *WorkerPool) GetWorkerStats() []WorkerStats {
-	stats := make([]WorkerStats, len(wp.workers))
+func (wp *WorkerPool) GetWorkerStats() []WorkerStatsSnapshot {
+	stats := make([]WorkerStatsSnapshot, len(wp.workers))
 	for i, worker := range wp.workers {
 		worker.stats.mutex.RLock()
-		stats[i] = *worker.stats
+		stats[i] = WorkerStatsSnapshot{
+			JobsProcessed: worker.stats.JobsProcessed,
+			JobsFailed:    worker.stats.JobsFailed,
+			TotalWorkTime: worker.stats.TotalWorkTime,
+			LastJobTime:   worker.stats.LastJobTime,
+			IsActive:      worker.stats.IsActive,
+		}
 		worker.stats.mutex.RUnlock()
 	}
 	return stats
