@@ -118,7 +118,10 @@ func ExampleUsage() {
 
 	// Simulate streaming data
 	sampleData := []byte(`{"data": "example streaming content"}`)
-	streamingInspector.Write(sampleData)
+	_, err := streamingInspector.Write(sampleData)
+	if err != nil {
+		log.Printf("Error writing to streaming inspector: %v", err)
+	}
 
 	if streamingInspector.IsDone() {
 		collectedData := streamingInspector.GetCollectedData()

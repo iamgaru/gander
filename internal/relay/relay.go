@@ -416,7 +416,6 @@ func (r *Relayer) HandleHTTPSInspection(clientConn net.Conn, serverAddr string, 
 				return fmt.Errorf("failed to connect to upstream TLS server: %w", tlsErr)
 			}
 			serverConn = tlsServerConn
-			isPooled = false
 		}
 	} else {
 		// For direct connections, it should already be TLS
@@ -437,8 +436,12 @@ func (r *Relayer) HandleHTTPSInspection(clientConn net.Conn, serverAddr string, 
 // handleHTTPSTraffic handles HTTP traffic over TLS connections
 func (r *Relayer) handleHTTPSTraffic(clientConn, serverConn *tls.Conn, info *ConnectionInfo) error {
 	// For robustness, set read timeouts to prevent hanging on partial requests
-	clientConn.SetReadDeadline(time.Now().Add(30 * time.Second))
-	serverConn.SetReadDeadline(time.Now().Add(30 * time.Second))
+	if err := clientConn.SetReadDeadline(time.Now().Add(30 * time.Second)); err != nil {
+		log.Printf("Failed to set client read deadline: %v", err)
+	}
+	if err := serverConn.SetReadDeadline(time.Now().Add(30 * time.Second)); err != nil {
+		log.Printf("Failed to set server read deadline: %v", err)
+	}
 
 	clientReader := bufio.NewReader(clientConn)
 	serverReader := bufio.NewReader(serverConn)
