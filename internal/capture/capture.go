@@ -2,6 +2,7 @@ package capture
 
 import (
 	"bytes"
+	"compress/gzip"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -109,6 +110,28 @@ const (
 	BodyCaptureDisabled  BodyCaptureStrategy = "disabled"   // Disable body capture entirely
 )
 
+const (
+	gzipExtension = ".gz"
+)
+
+// FileOrganization defines how to organize capture files
+type FileOrganization string
+
+const (
+	FileOrgFlat         FileOrganization = "flat"         // All files in single directory (current)
+	FileOrgHierarchical FileOrganization = "hierarchical" // Domain/date/type structure
+	FileOrgDate         FileOrganization = "date"         // Date-based structure only
+)
+
+// FileNaming defines the file naming convention
+type FileNaming string
+
+const (
+	FileNamingLegacy     FileNaming = "legacy"     // Current long format
+	FileNamingSimplified FileNaming = "simplified" // Short clean format
+	FileNamingHash       FileNaming = "hash"       // Hash-based naming
+)
+
 // CaptureConfig holds capture configuration
 type CaptureConfig struct {
 	MaxBodySize        int           `json:"max_body_size"`
@@ -121,12 +144,17 @@ type CaptureConfig struct {
 	SanitizeHeaders    bool          `json:"sanitize_headers"`
 	EnableMetadata     bool          `json:"enable_metadata"`
 
-	// New timeout-related configurations
+	// Timeout-related configurations
 	BodyReadTimeout         time.Duration       `json:"body_read_timeout"`         // Timeout for reading response body
 	BodyCaptureStrategy     BodyCaptureStrategy `json:"body_capture_strategy"`     // Strategy for handling timeouts
 	MaxBodySizeSkip         int                 `json:"max_body_size_skip"`        // Skip body capture if Content-Length exceeds this
 	CircuitBreakerThreshold int                 `json:"circuit_breaker_threshold"` // Number of consecutive failures before circuit opens
 	CircuitBreakerCooldown  time.Duration       `json:"circuit_breaker_cooldown"`  // Time to wait before trying again
+
+	// File organization configurations
+	FileOrganization FileOrganization `json:"file_organization"` // How to organize files
+	FileNaming       FileNaming       `json:"file_naming"`       // File naming convention
+	EnableGzipFiles  bool             `json:"enable_gzip_files"` // Compress individual JSON files
 }
 
 // NewCaptureManager creates a new capture manager
@@ -153,12 +181,17 @@ func DefaultCaptureConfig() *CaptureConfig {
 		SanitizeHeaders:    true,
 		EnableMetadata:     true,
 
-		// New timeout configurations with network-aware defaults
+		// Timeout configurations with network-aware defaults
 		BodyReadTimeout:         5 * time.Second,    // 5s for body reading (shorter than RequestTimeout)
 		BodyCaptureStrategy:     BodyCaptureDefault, // Use Option 2 as default
 		MaxBodySizeSkip:         10 * 1024 * 1024,   // Skip bodies > 10MB (larger than MaxBodySize)
 		CircuitBreakerThreshold: 5,                  // Open circuit after 5 consecutive failures
 		CircuitBreakerCooldown:  30 * time.Second,   // Wait 30s before trying again
+
+		// File organization configurations with modern defaults
+		FileOrganization: FileOrgHierarchical,  // Use domain/date/type structure
+		FileNaming:       FileNamingSimplified, // Use simplified naming
+		EnableGzipFiles:  true,                 // Compress files for storage efficiency
 	}
 }
 
@@ -613,11 +646,16 @@ func (cm *CaptureManager) isSensitiveHeader(header string) bool {
 	return false
 }
 
-// saveCapture saves a capture to disk
+// saveCapture saves a capture to disk with optional compression and organization
 func (cm *CaptureManager) saveCapture(capture *HTTPCapture) error {
-	// Generate filename
-	filename := cm.generateFilename(capture)
-	filepath := filepath.Join(cm.captureDir, filename)
+	// Generate full file path (includes directory structure)
+	fullPath := cm.generateFilePath(capture)
+
+	// Create directory structure if it doesn't exist
+	dir := filepath.Dir(fullPath)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return fmt.Errorf("failed to create capture directory: %w", err)
+	}
 
 	// Marshal to JSON
 	data, err := json.MarshalIndent(capture, "", "  ")
@@ -625,20 +663,125 @@ func (cm *CaptureManager) saveCapture(capture *HTTPCapture) error {
 		return fmt.Errorf("failed to marshal capture: %w", err)
 	}
 
-	// Write to file
-	if err := os.WriteFile(filepath, data, 0644); err != nil {
-		return fmt.Errorf("failed to write capture file: %w", err)
+	// Write file with optional compression
+	if cm.config.EnableGzipFiles {
+		if err := cm.writeCompressedFile(fullPath, data); err != nil {
+			return fmt.Errorf("failed to write compressed capture file: %w", err)
+		}
+	} else {
+		if err := os.WriteFile(fullPath, data, 0644); err != nil {
+			return fmt.Errorf("failed to write capture file: %w", err)
+		}
 	}
 
 	if cm.enableDebug {
-		logging.Debug("Saved capture to %s", filename)
+		relativePath, _ := filepath.Rel(cm.captureDir, fullPath)
+		logging.Debug("Saved capture to %s", relativePath)
 	}
 
 	return nil
 }
 
-// generateFilename generates a filename for a capture
-func (cm *CaptureManager) generateFilename(capture *HTTPCapture) string {
+// writeCompressedFile writes data to a gzip-compressed file
+func (cm *CaptureManager) writeCompressedFile(filePath string, data []byte) error {
+	// Create the file
+	file, err := os.Create(filePath)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+
+	// Create gzip writer
+	gzWriter := gzip.NewWriter(file)
+	defer gzWriter.Close()
+
+	// Write compressed data
+	if _, err := gzWriter.Write(data); err != nil {
+		return err
+	}
+
+	return gzWriter.Flush()
+}
+
+// detectResourceType determines the type of resource being captured
+func (cm *CaptureManager) detectResourceType(capture *HTTPCapture) string {
+	// Check content type first
+	contentType := strings.ToLower(capture.ContentType)
+	path := strings.ToLower(capture.Path)
+
+	// API endpoints
+	if strings.Contains(path, "/api/") || strings.Contains(path, "/v1/") ||
+		strings.Contains(path, "/v2/") || strings.Contains(path, "graphql") ||
+		strings.Contains(contentType, "application/json") {
+		return "api"
+	}
+
+	// Images
+	if strings.Contains(contentType, "image/") ||
+		strings.HasSuffix(path, ".jpg") || strings.HasSuffix(path, ".png") ||
+		strings.HasSuffix(path, ".gif") || strings.HasSuffix(path, ".webp") {
+		return "images"
+	}
+
+	// Scripts and stylesheets
+	if strings.Contains(contentType, "javascript") || strings.HasSuffix(path, ".js") {
+		return "scripts"
+	}
+	if strings.Contains(contentType, "text/css") || strings.HasSuffix(path, ".css") {
+		return "styles"
+	}
+
+	// Documents and media
+	if strings.Contains(contentType, "application/pdf") || strings.HasSuffix(path, ".pdf") {
+		return "documents"
+	}
+	if strings.Contains(contentType, "video/") || strings.Contains(contentType, "audio/") {
+		return "media"
+	}
+
+	// HTML pages
+	if strings.Contains(contentType, "text/html") || path == "/" || strings.HasSuffix(path, ".html") {
+		return "pages"
+	}
+
+	// WebSocket or real-time
+	if strings.Contains(path, "websocket") || strings.Contains(path, "channel") ||
+		strings.Contains(path, "stream") || strings.Contains(path, "watch") {
+		return "realtime"
+	}
+
+	// Default fallback
+	return "other"
+}
+
+// generateSimplifiedFilename generates a short, clean filename
+func (cm *CaptureManager) generateSimplifiedFilename(capture *HTTPCapture) string {
+	// Format: YYYYMMDD-HHMMSS-mmm_cCLIENT_pPORT_METHOD_TYPE.json[.gz]
+	timestamp := capture.Timestamp.Format("20060102-150405-000")
+
+	// Extract client IP and port
+	clientParts := strings.Split(capture.ClientIP, ":")
+	clientIP := strings.ReplaceAll(clientParts[0], ".", "")
+	port := "0"
+	if len(clientParts) > 1 {
+		port = clientParts[1]
+	}
+
+	method := strings.ToUpper(capture.Method)
+	resourceType := cm.detectResourceType(capture)
+
+	filename := fmt.Sprintf("%s_c%s_p%s_%s_%s.json",
+		timestamp, clientIP, port, method, resourceType)
+
+	if cm.config.EnableGzipFiles {
+		filename += gzipExtension
+	}
+
+	return filename
+}
+
+// generateLegacyFilename generates filename using the original format
+func (cm *CaptureManager) generateLegacyFilename(capture *HTTPCapture) string {
 	timestamp := capture.Timestamp.Format("2006-01-02_15-04-05.000")
 	clientIP := strings.ReplaceAll(capture.ClientIP, ":", "_")
 	domain := strings.ReplaceAll(capture.Domain, ":", "_")
@@ -655,8 +798,89 @@ func (cm *CaptureManager) generateFilename(capture *HTTPCapture) string {
 		safePath = safePath[:50]
 	}
 
-	return fmt.Sprintf("%s_[%s]_%s_%s_%s.json",
+	filename := fmt.Sprintf("%s_[%s]_%s_%s_%s.json",
 		timestamp, clientIP, domain, method, safePath)
+
+	if cm.config.EnableGzipFiles {
+		filename += gzipExtension
+	}
+
+	return filename
+}
+
+// generateFilename generates a filename based on the configured naming strategy
+func (cm *CaptureManager) generateFilename(capture *HTTPCapture) string {
+	switch cm.config.FileNaming {
+	case FileNamingSimplified:
+		return cm.generateSimplifiedFilename(capture)
+	case FileNamingLegacy:
+		return cm.generateLegacyFilename(capture)
+	default:
+		return cm.generateSimplifiedFilename(capture) // Default to simplified
+	}
+}
+
+// generateFilePath generates the full file path based on organization strategy
+func (cm *CaptureManager) generateFilePath(capture *HTTPCapture) string {
+	filename := cm.generateFilename(capture)
+
+	switch cm.config.FileOrganization {
+	case FileOrgHierarchical:
+		return cm.generateHierarchicalPath(capture, filename)
+	case FileOrgDate:
+		return cm.generateDatePath(capture, filename)
+	case FileOrgFlat:
+		return filepath.Join(cm.captureDir, filename)
+	default:
+		return cm.generateHierarchicalPath(capture, filename) // Default to hierarchical
+	}
+}
+
+// generateHierarchicalPath creates domain/date/type/filename structure
+func (cm *CaptureManager) generateHierarchicalPath(capture *HTTPCapture, filename string) string {
+	// Clean domain name for directory usage
+	domain := cm.cleanDomainForPath(capture.Domain)
+
+	// Date directory (YYYY-MM-DD)
+	dateDir := capture.Timestamp.Format("2006-01-02")
+
+	// Resource type directory
+	resourceType := cm.detectResourceType(capture)
+
+	return filepath.Join(cm.captureDir, domain, dateDir, resourceType, filename)
+}
+
+// generateDatePath creates date-based organization (YYYY/MM/DD/filename)
+func (cm *CaptureManager) generateDatePath(capture *HTTPCapture, filename string) string {
+	year := capture.Timestamp.Format("2006")
+	month := capture.Timestamp.Format("01")
+	day := capture.Timestamp.Format("02")
+
+	return filepath.Join(cm.captureDir, year, month, day, filename)
+}
+
+// cleanDomainForPath converts domain to filesystem-safe directory name
+func (cm *CaptureManager) cleanDomainForPath(domain string) string {
+	// Remove port if present
+	if colonIndex := strings.Index(domain, ":"); colonIndex != -1 {
+		domain = domain[:colonIndex]
+	}
+
+	// Replace problematic characters
+	domain = strings.ReplaceAll(domain, ":", "_")
+	domain = strings.ReplaceAll(domain, "*", "wildcard")
+	domain = strings.ReplaceAll(domain, "?", "_")
+	domain = strings.ReplaceAll(domain, "<", "_")
+	domain = strings.ReplaceAll(domain, ">", "_")
+	domain = strings.ReplaceAll(domain, "|", "_")
+	domain = strings.ReplaceAll(domain, "\"", "_")
+
+	// Handle special cases
+	if domain == "" || domain == "localhost" {
+		domain = "_local"
+	}
+
+	return domain
 }
 
 // cleanupPendingRequests periodically cleans up pending requests that have timed out
