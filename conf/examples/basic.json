@@ -15,7 +15,9 @@
     "log_file": "logs/proxy.log",
     "capture_dir": "captures",
     "max_file_size_mb": 100,
-    "enable_debug": false
+    "enable_debug": false,
+    "log_level": "info",
+    "console_minimal": true
   },
   "rules": {
     "inspect_domains": [

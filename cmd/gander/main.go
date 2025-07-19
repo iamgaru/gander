@@ -11,6 +11,7 @@ import (
 	"github.com/iamgaru/gander/internal/config"
 	"github.com/iamgaru/gander/internal/filter"
 	"github.com/iamgaru/gander/internal/filter/providers"
+	"github.com/iamgaru/gander/internal/logging"
 	"github.com/iamgaru/gander/internal/proxy"
 )
 
@@ -30,29 +31,60 @@ func main() {
 		log.Fatalf("Failed to load configuration: %v", err)
 	}
 
+	// Parse log level from config
+	logLevel := logging.LevelInfo
+	switch cfg.Logging.LogLevel {
+	case "error":
+		logLevel = logging.LevelError
+	case "warn":
+		logLevel = logging.LevelWarn
+	case "info":
+		logLevel = logging.LevelInfo
+	case "debug":
+		logLevel = logging.LevelDebug
+	}
+
+	// Initialize logging system
+	logConfig := logging.Config{
+		LogFile:      cfg.Logging.LogFile,
+		EnableDebug:  cfg.Logging.EnableDebug,
+		LogLevel:     logLevel,
+		ConsoleLevel: logging.LevelInfo, // Only show info and errors on console
+	}
+
+	if err := logging.InitGlobalLogger(logConfig); err != nil {
+		log.Fatalf("Failed to initialize logging: %v", err)
+	}
+	defer func() {
+		_ = logging.CloseGlobalLogger()
+	}()
+
 	// Initialize filter manager
 	filterManager := filter.NewManager(cfg.Logging.EnableDebug)
 
 	// Initialize and register built-in filter providers
 	if err := initializeFilterProviders(filterManager, cfg); err != nil {
-		log.Fatalf("Failed to initialize filter providers: %v", err)
+		logging.Error("Failed to initialize filter providers: %v", err)
+		os.Exit(1)
 	}
 
 	// Create and start proxy server
 	server, err := proxy.NewServer(cfg, filterManager)
 	if err != nil {
-		log.Fatalf("Failed to create proxy server: %v", err)
+		logging.Error("Failed to create proxy server: %v", err)
+		os.Exit(1)
 	}
 
 	// Set up config file watcher
 	configWatcher, err := config.NewConfigWatcher(configFile, loader)
 	if err != nil {
-		log.Fatalf("Failed to create config watcher: %v", err)
+		logging.Error("Failed to create config watcher: %v", err)
+		os.Exit(1)
 	}
 
 	// Add callback for config changes
 	configWatcher.AddCallback(func(_, newConfig *config.Config) error {
-		log.Printf("Config file changed, reloading server configuration...")
+		logging.Info("Configuration reloading...")
 
 		// Reload server configuration
 		if err := server.ReloadConfig(newConfig); err != nil {
@@ -64,19 +96,21 @@ func main() {
 			return fmt.Errorf("failed to reinitialize filter providers: %w", err)
 		}
 
-		log.Printf("Configuration successfully reloaded")
+		logging.Info("Configuration reloaded successfully")
 		return nil
 	})
 
 	// Start config watcher
 	if err := configWatcher.Start(cfg); err != nil {
-		log.Fatalf("Failed to start config watcher: %v", err)
+		logging.Error("Failed to start config watcher: %v", err)
+		os.Exit(1)
 	}
 	defer func() { _ = configWatcher.Stop() }()
 
 	// Start the server
 	if err := server.Start(); err != nil {
-		log.Fatalf("Failed to start proxy server: %v", err)
+		logging.Error("Failed to start proxy server: %v", err)
+		os.Exit(1)
 	}
 
 	// Set up signal handling for graceful shutdown
@@ -86,20 +120,23 @@ func main() {
 	// Start statistics reporting goroutine
 	go reportStatistics(server)
 
-	log.Println("Gander proxy server started successfully")
-	log.Printf("Configuration: Proxy=%s, Debug=%t, AutoCert=%t, UpstreamSniff=%t",
+	// Show startup info on console
+	logging.Info("Gander started successfully on %s", cfg.Proxy.ListenAddr)
+
+	// Log detailed configuration to file only
+	logging.Debug("Configuration: Proxy=%s, Debug=%t, AutoCert=%t, UpstreamSniff=%t",
 		cfg.Proxy.ListenAddr, cfg.Logging.EnableDebug, cfg.TLS.AutoGenerate, cfg.TLS.UpstreamCertSniff)
 
 	// Wait for shutdown signal
 	<-sigCh
-	log.Println("Received shutdown signal, stopping server...")
+	logging.Info("Shutting down...")
 
 	// Graceful shutdown
 	if err := server.Stop(); err != nil {
-		log.Printf("Error during server shutdown: %v", err)
+		logging.Error("Error during shutdown: %v", err)
+	} else {
+		logging.Info("Stopped")
 	}
-
-	log.Println("Gander proxy server stopped")
 }
 
 // initializeFilterProviders initializes and registers filter providers
@@ -140,7 +177,7 @@ func initializeFilterProviders(manager *filter.Manager, cfg *config.Config) erro
 		return fmt.Errorf("failed to register IP provider: %w", err)
 	}
 
-	// Log filter system initialization
+	// Log filter system initialization to file
 	providers := manager.GetProviders()
 	totalPacketFilters := 0
 	totalInspectionFilters := 0
@@ -151,11 +188,11 @@ func initializeFilterProviders(manager *filter.Manager, cfg *config.Config) erro
 		totalPacketFilters += packetFilters
 		totalInspectionFilters += inspectionFilters
 
-		log.Printf("Registered filter provider '%s': %d packet filters, %d inspection filters",
+		logging.Debug("Registered filter provider '%s': %d packet filters, %d inspection filters",
 			name, packetFilters, inspectionFilters)
 	}
 
-	log.Printf("Filter system initialized: %d providers, %d packet filters, %d inspection filters",
+	logging.Debug("Filter system initialized: %d providers, %d packet filters, %d inspection filters",
 		len(providers), totalPacketFilters, totalInspectionFilters)
 
 	// Log domain and IP filter details if debug is enabled
@@ -204,9 +241,9 @@ func logFilterDetails(cfg *config.Config) {
 		}
 	}
 
-	log.Printf("Domain filter: %d inspect domains (%d wildcards), %d bypass domains (%d wildcards)",
+	logging.Debug("Domain filter: %d inspect domains (%d wildcards), %d bypass domains (%d wildcards)",
 		inspectDomains, inspectWildcards, bypassDomains, bypassWildcards)
-	log.Printf("IP filter: %d inspect IPs (%d CIDRs), %d bypass IPs (%d CIDRs)",
+	logging.Debug("IP filter: %d inspect IPs (%d CIDRs), %d bypass IPs (%d CIDRs)",
 		inspectIPs, inspectCIDRs, bypassIPs, bypassCIDRs)
 }
 
@@ -248,19 +285,26 @@ func reportStatistics(server *proxy.Server) {
 		stats := server.GetStats()
 
 		if proxyStats, ok := stats["proxy"].(proxy.ProxyStatsSnapshot); ok {
-			log.Printf("Statistics: %d total connections, %d active, %d inspected, %.2f MB transferred",
+			// Essential stats on console every 60s
+			logging.Stats(true, "%d connections, %d active, %.1f MB transferred",
+				proxyStats.TotalConnections,
+				proxyStats.ActiveConnections,
+				float64(proxyStats.BytesTransferred)/(1024*1024))
+
+			// Detailed stats to file only
+			logging.Stats(false, "Detailed: %d total, %d active, %d inspected, %d bytes",
 				proxyStats.TotalConnections,
 				proxyStats.ActiveConnections,
 				proxyStats.InspectedConnections,
-				float64(proxyStats.BytesTransferred)/(1024*1024))
+				proxyStats.BytesTransferred)
 		}
 
 		if captureStats, ok := stats["capture"]; ok {
-			log.Printf("Capture Statistics: %+v", captureStats)
+			logging.Debug("Capture Statistics: %+v", captureStats)
 		}
 
 		if certStats, ok := stats["certs"]; ok {
-			log.Printf("Certificate Statistics: %+v", certStats)
+			logging.Debug("Certificate Statistics: %+v", certStats)
 		}
 	}
 }

@@ -34,10 +34,12 @@ type ProxyConfig struct {
 
 // LoggingConfig contains logging settings
 type LoggingConfig struct {
-	LogFile     string `json:"log_file"`
-	CaptureDir  string `json:"capture_dir"`
-	MaxFileSize int64  `json:"max_file_size_mb"`
-	EnableDebug bool   `json:"enable_debug"`
+	LogFile        string `json:"log_file"`
+	CaptureDir     string `json:"capture_dir"`
+	MaxFileSize    int64  `json:"max_file_size_mb"`
+	EnableDebug    bool   `json:"enable_debug"`
+	LogLevel       string `json:"log_level"`       // "error", "warn", "info", "debug"
+	ConsoleMinimal bool   `json:"console_minimal"` // Show only essential info on console
 }
 
 // TLSConfig contains TLS/certificate settings

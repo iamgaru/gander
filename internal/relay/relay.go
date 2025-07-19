@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/iamgaru/gander/internal/cert"
+	"github.com/iamgaru/gander/internal/logging"
 	"github.com/iamgaru/gander/internal/pool"
 	tlsopt "github.com/iamgaru/gander/internal/tls"
 )
@@ -187,7 +188,7 @@ func (r *Relayer) HandleFastRelay(clientConn net.Conn, serverAddr string, info *
 	defer serverConn.Close()
 
 	if r.enableDebug {
-		log.Printf("Fast relay: %s -> %s", clientConn.RemoteAddr(), serverAddr)
+		logging.Debug("Fast relay: %s -> %s", clientConn.RemoteAddr(), serverAddr)
 	}
 
 	// Bidirectional relay
@@ -226,7 +227,7 @@ func (r *Relayer) HandleTransparentRelay(clientConn net.Conn, initialData []byte
 	}
 
 	if r.enableDebug {
-		log.Printf("Transparent relay: %s -> %s (initial data: %d bytes)",
+		logging.Debug("Transparent relay: %s -> %s (initial data: %d bytes)",
 			clientConn.RemoteAddr(), info.ServerAddr, len(initialData))
 	}
 
@@ -267,7 +268,7 @@ func (r *Relayer) HandleHTTPRelay(clientConn net.Conn, initialData []byte, info 
 		// Capture request if inspection is enabled
 		if inspect && r.captureHandler != nil {
 			if err := r.captureHandler.CaptureHTTPRequest(req, info.ClientIP); err != nil {
-				log.Printf("Failed to capture HTTP request: %v", err)
+				logging.Warn("Failed to capture HTTP request: %v", err)
 			}
 		}
 
@@ -303,7 +304,7 @@ func (r *Relayer) HandleHTTPRelay(clientConn net.Conn, initialData []byte, info 
 		// Capture response if inspection is enabled
 		if inspect && r.captureHandler != nil {
 			if err := r.captureHandler.CaptureHTTPResponse(resp, info.ClientIP); err != nil {
-				log.Printf("Failed to capture HTTP response: %v", err)
+				logging.Warn("Failed to capture HTTP response: %v", err)
 			}
 		}
 
@@ -341,7 +342,7 @@ func (r *Relayer) HandleHTTPSInspection(clientConn net.Conn, serverAddr string, 
 	// Get certificate for the domain
 	tlsCert, err := r.certManager.GetTLSCertificate(info.Domain)
 	if err != nil {
-		log.Printf("Failed to get certificate for %s: %v", info.Domain, err)
+		logging.Warn("Failed to get certificate for %s: %v", info.Domain, err)
 		// Fallback to transparent relay
 		return r.HandleTransparentRelay(clientConn, nil, info)
 	}
@@ -361,7 +362,7 @@ func (r *Relayer) HandleHTTPSInspection(clientConn net.Conn, serverAddr string, 
 	}
 
 	if r.enableDebug {
-		log.Printf("HTTPS inspection: %s -> %s (domain: %s)",
+		logging.Debug("HTTPS inspection: %s -> %s (domain: %s)",
 			clientConn.RemoteAddr(), serverAddr, info.Domain)
 	}
 

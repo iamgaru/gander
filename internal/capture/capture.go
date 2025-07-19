@@ -12,6 +12,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/iamgaru/gander/internal/logging"
 )
 
 // ConnectionInfo contains metadata about a proxy connection (duplicated to avoid import cycle)
@@ -246,7 +248,7 @@ func (cm *CaptureManager) CaptureHTTPRequest(req *http.Request, clientIP string)
 	cm.stats.AddBytesProcessed(int64(len(bodyBytes)))
 
 	if cm.enableDebug {
-		log.Printf("Captured HTTP request: %s %s from %s (correlation: %s)",
+		logging.Request("Captured HTTP request: %s %s from %s (correlation: %s)",
 			req.Method, req.URL.Path, clientIP, correlationID)
 	}
 
@@ -437,7 +439,7 @@ func (cm *CaptureManager) CaptureHTTPResponse(resp *http.Response, clientIP stri
 	bodyBytes, err := cm.readResponseBody(resp)
 	if err != nil {
 		// Log error but don't fail the entire capture
-		log.Printf("Failed to capture response body (using strategy %s): %v", cm.config.BodyCaptureStrategy, err)
+		logging.Warn("Failed to capture response body (using strategy %s): %v", cm.config.BodyCaptureStrategy, err)
 		bodyBytes = nil // Continue without body
 	}
 
@@ -476,7 +478,7 @@ func (cm *CaptureManager) CaptureHTTPResponse(resp *http.Response, clientIP stri
 		// Save complete capture
 		if err := cm.saveCapture(requestCapture); err != nil {
 			cm.stats.IncrementSaveErrors()
-			log.Printf("Failed to save capture: %v", err)
+			logging.Error("Failed to save capture: %v", err)
 		} else {
 			cm.stats.IncrementPairsCaptured()
 		}
@@ -484,7 +486,7 @@ func (cm *CaptureManager) CaptureHTTPResponse(resp *http.Response, clientIP stri
 		cm.requestMutex.Unlock()
 
 		if cm.enableDebug {
-			log.Printf("Captured HTTP response: %d %s for %s (correlation: %s, duration: %dms)",
+			logging.Response("Captured HTTP response: %d %s for %s (correlation: %s, duration: %dms)",
 				resp.StatusCode, resp.Status, correlationID, correlationID, requestCapture.Duration)
 		}
 	} else {
@@ -629,7 +631,7 @@ func (cm *CaptureManager) saveCapture(capture *HTTPCapture) error {
 	}
 
 	if cm.enableDebug {
-		log.Printf("Saved capture to %s", filename)
+		logging.Debug("Saved capture to %s", filename)
 	}
 
 	return nil
