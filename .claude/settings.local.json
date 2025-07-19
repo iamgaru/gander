@@ -37,7 +37,8 @@
       "Bash(/usr/bin/git --version)",
       "Bash(exec gofmt -s -l .)",
       "Bash(go fmt:*)",
-      "Bash(./format.sh)"
+      "Bash(./format.sh)",
+      "Bash(golangci-lint run:*)"
     ],
     "deny": []
   }

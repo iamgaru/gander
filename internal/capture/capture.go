@@ -77,6 +77,11 @@ type CaptureManager struct {
 
 	// Configuration
 	config *CaptureConfig
+
+	// Circuit breaker state for body capture
+	circuitBreakerFailures int
+	circuitBreakerOpenTime time.Time
+	circuitBreakerMutex    sync.RWMutex
 }
 
 // CaptureStats tracks capture statistics
@@ -92,6 +97,16 @@ type CaptureStats struct {
 	mutex               sync.RWMutex
 }
 
+// BodyCaptureStrategy defines how to handle body capture timeouts
+type BodyCaptureStrategy string
+
+const (
+	BodyCaptureDefault   BodyCaptureStrategy = "default"    // Option 2: readBodyWithTimeout
+	BodyCaptureSkipLarge BodyCaptureStrategy = "skip_large" // Option 3: Skip large/slow responses
+	BodyCaptureStream    BodyCaptureStrategy = "stream"     // Option 4: Stream with timeout
+	BodyCaptureDisabled  BodyCaptureStrategy = "disabled"   // Disable body capture entirely
+)
+
 // CaptureConfig holds capture configuration
 type CaptureConfig struct {
 	MaxBodySize        int           `json:"max_body_size"`
@@ -103,6 +118,13 @@ type CaptureConfig struct {
 	IncludeBody        bool          `json:"include_body"`
 	SanitizeHeaders    bool          `json:"sanitize_headers"`
 	EnableMetadata     bool          `json:"enable_metadata"`
+
+	// New timeout-related configurations
+	BodyReadTimeout         time.Duration       `json:"body_read_timeout"`         // Timeout for reading response body
+	BodyCaptureStrategy     BodyCaptureStrategy `json:"body_capture_strategy"`     // Strategy for handling timeouts
+	MaxBodySizeSkip         int                 `json:"max_body_size_skip"`        // Skip body capture if Content-Length exceeds this
+	CircuitBreakerThreshold int                 `json:"circuit_breaker_threshold"` // Number of consecutive failures before circuit opens
+	CircuitBreakerCooldown  time.Duration       `json:"circuit_breaker_cooldown"`  // Time to wait before trying again
 }
 
 // NewCaptureManager creates a new capture manager
@@ -128,6 +150,13 @@ func DefaultCaptureConfig() *CaptureConfig {
 		IncludeBody:        true,
 		SanitizeHeaders:    true,
 		EnableMetadata:     true,
+
+		// New timeout configurations with network-aware defaults
+		BodyReadTimeout:         5 * time.Second,    // 5s for body reading (shorter than RequestTimeout)
+		BodyCaptureStrategy:     BodyCaptureDefault, // Use Option 2 as default
+		MaxBodySizeSkip:         10 * 1024 * 1024,   // Skip bodies > 10MB (larger than MaxBodySize)
+		CircuitBreakerThreshold: 5,                  // Open circuit after 5 consecutive failures
+		CircuitBreakerCooldown:  30 * time.Second,   // Wait 30s before trying again
 	}
 }
 
@@ -224,6 +253,177 @@ func (cm *CaptureManager) CaptureHTTPRequest(req *http.Request, clientIP string)
 	return nil
 }
 
+// isCircuitBreakerOpen checks if the circuit breaker is open
+func (cm *CaptureManager) isCircuitBreakerOpen() bool {
+	cm.circuitBreakerMutex.RLock()
+	defer cm.circuitBreakerMutex.RUnlock()
+
+	if cm.circuitBreakerFailures >= cm.config.CircuitBreakerThreshold {
+		if time.Since(cm.circuitBreakerOpenTime) < cm.config.CircuitBreakerCooldown {
+			return true
+		}
+		// Reset circuit breaker after cooldown
+		cm.circuitBreakerFailures = 0
+	}
+	return false
+}
+
+// recordCircuitBreakerFailure records a failure for the circuit breaker
+func (cm *CaptureManager) recordCircuitBreakerFailure() {
+	cm.circuitBreakerMutex.Lock()
+	defer cm.circuitBreakerMutex.Unlock()
+
+	cm.circuitBreakerFailures++
+	if cm.circuitBreakerFailures >= cm.config.CircuitBreakerThreshold {
+		cm.circuitBreakerOpenTime = time.Now()
+	}
+}
+
+// resetCircuitBreaker resets the circuit breaker on success
+func (cm *CaptureManager) resetCircuitBreaker() {
+	cm.circuitBreakerMutex.Lock()
+	defer cm.circuitBreakerMutex.Unlock()
+
+	cm.circuitBreakerFailures = 0
+}
+
+// readBodyWithTimeout reads response body with timeout (Option 2 - Default)
+func (cm *CaptureManager) readBodyWithTimeout(body io.ReadCloser, timeout time.Duration, maxSize int) ([]byte, error) {
+	if body == nil {
+		return nil, nil
+	}
+
+	// Create a limited reader to prevent excessive memory usage
+	limitedReader := io.LimitReader(body, int64(maxSize))
+
+	// Use a channel to implement timeout
+	type result struct {
+		data []byte
+		err  error
+	}
+
+	resultChan := make(chan result, 1)
+
+	go func() {
+		data, err := io.ReadAll(limitedReader)
+		resultChan <- result{data: data, err: err}
+	}()
+
+	select {
+	case res := <-resultChan:
+		return res.data, res.err
+	case <-time.After(timeout):
+		return nil, fmt.Errorf("timeout reading response body after %v", timeout)
+	}
+}
+
+// shouldSkipBodyCapture checks if body capture should be skipped (Option 3)
+func (cm *CaptureManager) shouldSkipBodyCapture(resp *http.Response) bool {
+	// Check circuit breaker
+	if cm.isCircuitBreakerOpen() {
+		return true
+	}
+
+	// Check Content-Length header
+	if contentLength := resp.Header.Get("Content-Length"); contentLength != "" {
+		if length := resp.ContentLength; length > int64(cm.config.MaxBodySizeSkip) {
+			return true
+		}
+	}
+
+	// Skip for certain content types that are typically large
+	contentType := resp.Header.Get("Content-Type")
+	if strings.Contains(contentType, "video/") ||
+		strings.Contains(contentType, "audio/") ||
+		strings.Contains(contentType, "application/octet-stream") {
+		return true
+	}
+
+	return false
+}
+
+// readBodyWithStream reads response body using streaming with timeout (Option 4)
+func (cm *CaptureManager) readBodyWithStream(body io.ReadCloser, timeout time.Duration, maxSize int) ([]byte, error) {
+	if body == nil {
+		return nil, nil
+	}
+
+	var buffer bytes.Buffer
+	done := make(chan error, 1)
+
+	go func() {
+		defer close(done)
+
+		// Create a limited reader
+		limitedReader := io.LimitReader(body, int64(maxSize))
+
+		// Stream read in chunks
+		chunk := make([]byte, 8192) // 8KB chunks
+		for {
+			n, err := limitedReader.Read(chunk)
+			if n > 0 {
+				buffer.Write(chunk[:n])
+			}
+			if err != nil {
+				if err == io.EOF {
+					done <- nil
+				} else {
+					done <- err
+				}
+				return
+			}
+		}
+	}()
+
+	select {
+	case err := <-done:
+		return buffer.Bytes(), err
+	case <-time.After(timeout):
+		return nil, fmt.Errorf("timeout streaming response body after %v", timeout)
+	}
+}
+
+// readResponseBody reads response body using the configured strategy
+func (cm *CaptureManager) readResponseBody(resp *http.Response) ([]byte, error) {
+	if !cm.config.IncludeBody {
+		return nil, nil
+	}
+
+	// Check strategy-specific skip conditions
+	if cm.config.BodyCaptureStrategy == BodyCaptureDisabled {
+		return nil, nil
+	}
+
+	if cm.config.BodyCaptureStrategy == BodyCaptureSkipLarge && cm.shouldSkipBodyCapture(resp) {
+		return nil, nil
+	}
+
+	var bodyBytes []byte
+	var err error
+
+	switch cm.config.BodyCaptureStrategy {
+	case BodyCaptureDefault:
+		bodyBytes, err = cm.readBodyWithTimeout(resp.Body, cm.config.BodyReadTimeout, cm.config.MaxBodySize)
+	case BodyCaptureSkipLarge:
+		bodyBytes, err = cm.readBodyWithTimeout(resp.Body, cm.config.BodyReadTimeout, cm.config.MaxBodySize)
+	case BodyCaptureStream:
+		bodyBytes, err = cm.readBodyWithStream(resp.Body, cm.config.BodyReadTimeout, cm.config.MaxBodySize)
+	case BodyCaptureDisabled:
+		return nil, nil
+	default:
+		// Fallback to default strategy
+		bodyBytes, err = cm.readBodyWithTimeout(resp.Body, cm.config.BodyReadTimeout, cm.config.MaxBodySize)
+	}
+
+	if err != nil {
+		cm.recordCircuitBreakerFailure()
+		return nil, err
+	}
+
+	cm.resetCircuitBreaker()
+	return bodyBytes, nil
+}
+
 // CaptureHTTPResponse captures an HTTP response and correlates it with a request
 func (cm *CaptureManager) CaptureHTTPResponse(resp *http.Response, clientIP string) error {
 	if resp == nil {
@@ -233,20 +433,17 @@ func (cm *CaptureManager) CaptureHTTPResponse(resp *http.Response, clientIP stri
 	// Generate correlation ID (should match the request)
 	correlationID := cm.generateCorrelationID(resp.Request, clientIP)
 
-	// Read and restore body
-	var bodyBytes []byte
-	var err error
-	if resp.Body != nil && cm.config.IncludeBody {
-		bodyBytes, err = io.ReadAll(resp.Body)
-		if err != nil {
-			return fmt.Errorf("failed to read response body: %w", err)
-		}
-		resp.Body = io.NopCloser(bytes.NewReader(bodyBytes))
+	// Read body using configurable strategy
+	bodyBytes, err := cm.readResponseBody(resp)
+	if err != nil {
+		// Log error but don't fail the entire capture
+		log.Printf("Failed to capture response body (using strategy %s): %v", cm.config.BodyCaptureStrategy, err)
+		bodyBytes = nil // Continue without body
 	}
 
-	// Limit body size
-	if len(bodyBytes) > cm.config.MaxBodySize {
-		bodyBytes = bodyBytes[:cm.config.MaxBodySize]
+	// Restore body for downstream consumption
+	if resp.Body != nil && bodyBytes != nil {
+		resp.Body = io.NopCloser(bytes.NewReader(bodyBytes))
 	}
 
 	// Extract headers

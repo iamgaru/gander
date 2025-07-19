@@ -82,8 +82,10 @@ Gander features a modern, modular architecture designed for extensibility and pe
   - [Identity-Based Reporting](#identity-based-reporting)
   - [Storage Management](#storage-management)
   - [Enhanced Capture Format](#enhanced-capture-format)
+  - [Timeout & Resilience Configuration](#timeout--resilience-configuration)
 - [Configuration](#configuration)
 - [Performance & Sizing](#performance--sizing)
+- [Troubleshooting](#troubleshooting)
 - [Deployment](#deployment)
 - [Development](#development)
 - [Migration](#migration)
@@ -257,6 +259,43 @@ Rich, structured capture format with automatic classification:
 - Performance metrics (fast, slow, large response)
 - Identity context (identified, anonymous, trusted network)
 
+### Timeout & Resilience Configuration
+
+Gander includes advanced timeout handling to prevent HTTPS capture failures from affecting performance:
+
+```json
+{
+  "capture": {
+    "body_read_timeout": "5s",
+    "body_capture_strategy": "default",
+    "max_body_size_skip": 10485760,
+    "circuit_breaker_threshold": 5,
+    "circuit_breaker_cooldown": "30s"
+  }
+}
+```
+
+**Available Strategies:**
+
+| Strategy | Description | Use Case |
+|----------|-------------|----------|
+| `"default"` | **Recommended** - Timeout-based body reading | Balanced performance and capture |
+| `"skip_large"` | Skip large/slow responses automatically | High-volume environments |
+| `"stream"` | Chunked streaming with timeout | Very large responses |
+| `"disabled"` | Disable body capture entirely | Metadata-only capture |
+
+**Circuit Breaker Pattern:**
+- Automatically stops body capture after 5 consecutive failures
+- 30-second cooldown period prevents resource waste
+- Self-healing when network conditions improve
+- Proxy continues relaying traffic normally during issues
+
+**Common Timeout Scenarios:**
+```
+Failed to capture HTTPS response: failed to read response body: read tcp 10.0.1.100:53688->172.217.167.106:443: i/o timeout
+```
+*Solution: Circuit breaker activates, preventing repeated timeouts while maintaining proxy functionality*
+
 ## Configuration
 
 ### Production-Ready Example
@@ -282,6 +321,15 @@ The `config_storage_example.json` provides a complete production configuration:
     "max_file_size": 52428800,
     "capture_level": "basic",
     "retention_period": "720h"
+  },
+  "capture": {
+    "max_body_size": 1048576,
+    "include_body": true,
+    "body_read_timeout": "5s",
+    "body_capture_strategy": "default",
+    "max_body_size_skip": 10485760,
+    "circuit_breaker_threshold": 5,
+    "circuit_breaker_cooldown": "30s"
   }
 }
 ```
@@ -290,6 +338,7 @@ The `config_storage_example.json` provides a complete production configuration:
 
 - **Identity**: Configure identity providers and resolution
 - **Storage**: Compression, rolling, retention, and capture levels
+- **Capture**: Timeout handling, body capture strategies, and resilience settings
 - **Filters**: Domain, IP, and content-based filtering rules
 - **Streaming**: Real-time data streaming to external systems
 - **Monitoring**: Metrics, alerts, and performance monitoring
@@ -318,6 +367,13 @@ The `config_storage_example.json` provides a complete production configuration:
 - Enhanced TLS session resumption with optimized caching
 - Smart certificate pre-generation for popular domains reduces first-request latency
 
+**Timeout & Resilience Improvements (v3.0.2):**
+- Configurable body capture strategies with 4 timeout handling modes
+- Circuit breaker pattern prevents resource waste during network issues
+- 5-second default timeout for response body capture (vs. blocking indefinitely)
+- Automatic skip logic for large responses (>10MB) to prevent memory issues
+- Self-healing system continues normal operation during temporary network problems
+
 ### Optimization Tips
 
 **High Volume Environments:**
@@ -336,6 +392,61 @@ The `config_storage_example.json` provides a complete production configuration:
 - Use "full" or "deep" capture levels
 - Shorter retention (1-3 days)
 - Smaller rolling files for analysis
+
+## Troubleshooting
+
+### Common Timeout Issues
+
+**Issue: HTTPS Response Body Timeouts**
+```
+Failed to capture HTTPS response: failed to read response body: read tcp 10.0.1.100:53688->172.217.167.106:443: i/o timeout
+```
+
+**Solutions:**
+1. **Automatic (Recommended)**: Circuit breaker activates after 5 failures, stops attempting for 30s
+2. **Configuration Adjustments**:
+   ```json
+   {
+     "capture": {
+       "body_read_timeout": "10s",          // Increase timeout for slow networks
+       "body_capture_strategy": "skip_large", // Skip problematic responses
+       "max_body_size_skip": 5242880       // Skip bodies > 5MB
+     }
+   }
+   ```
+3. **High-Volume Environments**: Use `"body_capture_strategy": "disabled"` for metadata-only capture
+
+**Issue: High Memory Usage**
+- Reduce `max_body_size` from 1MB to 512KB or 256KB
+- Use `"compression_format": "lz4"` for faster processing
+- Set `"capture_level": "minimal"` or `"basic"`
+
+**Issue: Storage Growth**
+- Enable compression: `"compression_enabled": true`
+- Reduce retention: `"retention_period": "168h"` (7 days)
+- Use selective filtering for specific domains only
+
+**Issue: Performance Degradation**
+- Check connection pool settings in logs
+- Verify certificate generation is not blocking
+- Monitor for repeated timeout patterns
+- Consider using transparent relay for non-critical domains
+
+### Debugging Commands
+
+```bash
+# Check capture statistics
+curl http://localhost:8848/stats
+
+# Monitor real-time logs
+tail -f captures/gander.log
+
+# Test specific domains
+curl -x localhost:8848 -v https://example.com
+
+# Validate configuration
+make validate-config
+```
 
 ## Deployment
 
@@ -517,6 +628,12 @@ We welcome contributions! Please see our [Contributing Guidelines](CONTRIBUTING.
   - Context-aware certificate validation
   - Automatic development domain detection
   - Zero breaking changes with enhanced security
+- ✅ **Timeout & Resilience Improvements** (v3.0.2)
+  - Configurable body capture strategies with 4 timeout handling modes
+  - Circuit breaker pattern prevents resource waste during network issues
+  - 5-second default timeout for response body capture
+  - Automatic skip logic for large responses to prevent memory issues
+  - Self-healing system continues operation during network problems
 
 ### Version 3.1 (Q1 2025)
 - 🔄 DHCP identity provider
