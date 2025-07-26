@@ -1,6 +1,6 @@
 {
   "proxy": {
-    "listen_addr": ":8849",
+    "listen_addr": ":8848",
     "transparent": false,
     "explicit_port": 3129,
     "buffer_size": 65536,
