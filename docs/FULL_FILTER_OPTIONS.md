@@ -483,7 +483,7 @@ var HTTPSignatures = []ProtocolSignature{
     },
     {
         Protocol:   "http-response", 
-        Patterns:   [][]byte{[]byte("HTTP/1.0 "), []byte("HTTP/1.1 "), []byte("HTTP/2.0 ")},
+        Patterns:   [][]byte{[]byte("HTTP/1.0 "), []byte("HTTP/1.1 "), []byte("HTTP/2 ")},
         Offset:     0,
         MinLength:  9,
         Confidence: 0.95,

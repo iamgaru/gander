@@ -311,6 +311,11 @@ func TestIsHTTPResponse(t *testing.T) {
 			expected: true,
 		},
 		{
+			name:     "HTTP/2 response",
+			data:     []byte("HTTP/2 200 \r\nContent-Type: text/html\r\n\r\n"),
+			expected: true,
+		},
+		{
 			name:     "HTTP request (not response)",
 			data:     []byte("GET / HTTP/1.1\r\nHost: example.com\r\n\r\n"),
 			expected: false,

@@ -4,7 +4,7 @@
   "_SECURITY": "Review all settings, especially listen_addr and domain lists",
   
   "proxy": {
-    "listen_addr": ":1234",
+    "listen_addr": ":8848",
     "transparent": false,
     "explicit_port": 3128,
     "buffer_size": 32768,
