@@ -96,6 +96,7 @@ Pluggable system for analyzing traffic with allow/block/redirect decisions. Uses
 - **Adapter pattern:** Easy plugin registration/management
 - **Binary decisions:** Every filter produces allow/block(/redirect) verdicts
 - **Central logging:** All decisions to unified verdict log
+- **Block page serving:** Static HTML embedded in binary for blocked requests
 - **Integration points:** Packet filter hooks, proxy inspection hooks, response analysis
 
 **Filter Interface:**
@@ -104,6 +105,7 @@ type FilterDecision struct {
     Action   string // "allow", "block", "redirect"
     Reason   string // human-readable reason  
     Metadata map[string]interface{}
+    BlockPage string // optional custom block page content
 }
 
 type TrafficFilter interface {
@@ -117,6 +119,7 @@ type TrafficFilter interface {
 - **packetFilter** - hostname/IP blocklist (existing domain filter integration)
 - **proxyFilter** - header analysis (User-Agent, Content-Type restrictions)
 - **contentFilter** - future ML/text analysis (design only)
+- **blockPageHandler** - serves static HTML block page for blocked requests
 
 **Config Changes:**
 ```json
@@ -132,6 +135,12 @@ type TrafficFilter interface {
     "reporting": {
       "verdict_file": "logs/verdicts.log",
       "plugin_logs": true
+    },
+    "block_page": {
+      "enabled": true,
+      "template": "default",
+      "show_reason": true,
+      "show_timestamp": true
     },
     "filters": {
       "packetFilter": {

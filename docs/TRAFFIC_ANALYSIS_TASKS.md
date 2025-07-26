@@ -120,7 +120,57 @@ Hook the filter system into existing packet filter and proxy inspection flows.
 
 ### Phase 2: Verdict Logging & Reporting
 
-#### Task 2.4: Central Verdict Logging System
+#### Task 2.4: Block Page Handler Implementation
+**Estimate:** 2-3 hours  
+**Priority:** High (core user experience)
+
+**Description:**
+Implement static HTML block page serving for blocked requests.
+
+**Implementation:**
+- [ ] Create `internal/analysis/block_page.go`
+- [ ] Embed default block page HTML in binary using Go's `embed` package
+- [ ] Template system for dynamic content (reason, timestamp, URL)
+- [ ] Integration with filter decision pipeline
+- [ ] HTTP response handling for blocked requests
+
+**Block Page Features:**
+- [ ] Clean, professional design
+- [ ] Show block reason (configurable)
+- [ ] Show timestamp and requested URL
+- [ ] Responsive design for mobile/desktop
+- [ ] Optional custom branding
+
+**HTTP Response:**
+- [ ] Return HTTP 403 Forbidden status
+- [ ] Proper Content-Type: text/html headers
+- [ ] Close connection cleanly
+- [ ] Log block page serving in verdict log
+
+**Template Variables:**
+```html
+<!DOCTYPE html>
+<html>
+<head><title>Access Blocked</title></head>
+<body>
+  <h1>Access Blocked</h1>
+  <p>URL: {{.URL}}</p>
+  <p>Reason: {{.Reason}}</p>
+  <p>Time: {{.Timestamp}}</p>
+  <p>Contact your administrator for access.</p>
+</body>
+</html>
+```
+
+**Testing:**
+- [ ] Block page serves correctly
+- [ ] Template variables populate
+- [ ] HTTP status and headers correct
+- [ ] Performance impact minimal
+
+---
+
+#### Task 2.5: Central Verdict Logging System
 **Estimate:** 2-3 hours  
 **Priority:** Medium
 
@@ -157,7 +207,7 @@ Implement centralized logging of all filter decisions for monitoring and analysi
 
 ---
 
-#### Task 2.5: Plugin-Specific Logging
+#### Task 2.6: Plugin-Specific Logging
 **Estimate:** 1-2 hours  
 **Priority:** Low
 
@@ -179,7 +229,7 @@ Enable each filter plugin to have its own detailed log file.
 
 ### Phase 3: Basic Filter Implementations
 
-#### Task 2.6: Packet Filter Plugin
+#### Task 2.7: Packet Filter Plugin
 **Estimate:** 2-3 hours  
 **Priority:** Medium
 
@@ -207,7 +257,7 @@ Create the first concrete filter: hostname/IP-based filtering (similar to existi
 
 ---
 
-#### Task 2.7: Proxy Filter Plugin
+#### Task 2.8: Proxy Filter Plugin
 **Estimate:** 3-4 hours  
 **Priority:** Medium
 
@@ -234,7 +284,7 @@ Create header-based filtering for full proxy inspection mode.
 
 ---
 
-#### Task 2.8: Configuration Integration
+#### Task 2.9: Configuration Integration
 **Estimate:** 2-3 hours  
 **Priority:** High
 
@@ -254,6 +304,12 @@ Add configuration support for the traffic analysis system.
     "reporting": {
       "verdict_file": "logs/verdicts.log",
       "plugin_logs": true
+    },
+    "block_page": {
+      "enabled": true,
+      "template": "default",
+      "show_reason": true,
+      "show_timestamp": true
     },
     "filters": {
       "packetFilter": {
@@ -284,7 +340,7 @@ Add configuration support for the traffic analysis system.
 
 ## Phase 4: Future Enhancements (Design Only)
 
-#### Task 2.9: Content Filter Plugin Design
+#### Task 2.10: Content Filter Plugin Design
 **Estimate:** 1-2 hours planning  
 **Priority:** Low (future)
 
@@ -308,16 +364,17 @@ Design the content analysis plugin for ML/text analysis (don't implement).
 1. Task 2.1: Filter Interface & Decision Model
 2. Task 2.2: Filter Registry & Manager  
 3. Task 2.3: Proxy Integration
-4. Task 2.8: Configuration Integration
+4. Task 2.4: Block Page Handler Implementation
+5. Task 2.9: Configuration Integration
 
 ### Sprint 2: Logging & Basic Filters
-1. Task 2.4: Central Verdict Logging
-2. Task 2.6: Packet Filter Plugin
-3. Task 2.7: Proxy Filter Plugin
+1. Task 2.5: Central Verdict Logging
+2. Task 2.7: Packet Filter Plugin
+3. Task 2.8: Proxy Filter Plugin
 
 ### Sprint 3: Polish & Future Planning
-1. Task 2.5: Plugin-Specific Logging
-2. Task 2.9: Content Filter Design
+1. Task 2.6: Plugin-Specific Logging
+2. Task 2.10: Content Filter Design
 
 ## Definition of Done
 
@@ -325,6 +382,7 @@ Design the content analysis plugin for ML/text analysis (don't implement).
 - [ ] Filter system integrated with existing proxy flow
 - [ ] Packet and header filtering working
 - [ ] Allow/block decisions enforced
+- [ ] Block page serving functional for blocked requests
 - [ ] Configuration system working
 - [ ] **No performance regression from baseline**
 
