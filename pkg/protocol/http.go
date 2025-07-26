@@ -238,5 +238,5 @@ func IsHTTPResponse(data []byte) bool {
 	// Check for HTTP response start patterns
 	return bytes.HasPrefix(data, []byte("HTTP/1.0 ")) ||
 		bytes.HasPrefix(data, []byte("HTTP/1.1 ")) ||
-		bytes.HasPrefix(data, []byte("HTTP/2.0 "))
+		bytes.HasPrefix(data, []byte("HTTP/2 "))
 }

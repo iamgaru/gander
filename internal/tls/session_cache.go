@@ -450,6 +450,9 @@ func (tcb *TLSConfigBuilder) BuildClientConfig(serverName string, insecureSkipVe
 		InsecureSkipVerify: insecureSkipVerify,
 		ClientSessionCache: tcb.sessionCache,
 		
+		// Protocol negotiation - support HTTP/2 and HTTP/1.1
+		NextProtos: []string{"h2", "http/1.1"},
+		
 		// Performance optimizations
 		PreferServerCipherSuites: false, // Let client choose for better performance
 		CurvePreferences: []tls.CurveID{
@@ -487,6 +490,9 @@ func (tcb *TLSConfigBuilder) BuildClientConfig(serverName string, insecureSkipVe
 func (tcb *TLSConfigBuilder) BuildServerConfig(certificates []tls.Certificate) *tls.Config {
 	cfg := &tls.Config{
 		Certificates: certificates,
+		
+		// Protocol negotiation - support HTTP/2 and HTTP/1.1
+		NextProtos: []string{"h2", "http/1.1"},
 		
 		// Performance optimizations
 		PreferServerCipherSuites: true, // Server has better knowledge of its capabilities
