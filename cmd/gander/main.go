@@ -11,6 +11,7 @@ import (
 	"github.com/iamgaru/gander/internal/config"
 	"github.com/iamgaru/gander/internal/filter"
 	"github.com/iamgaru/gander/internal/filter/providers"
+	"github.com/iamgaru/gander/internal/logging"
 	"github.com/iamgaru/gander/internal/proxy"
 )
 
@@ -30,29 +31,42 @@ func main() {
 		log.Fatalf("Failed to load configuration: %v", err)
 	}
 
+	// Initialize structured logger
+	logger, err := logging.NewLogger(cfg.Logging.ConsoleLevel, cfg.Logging.LogFile)
+	if err != nil {
+		log.Fatalf("Failed to initialize logger: %v", err)
+	}
+	defer logger.Close()
+
 	// Initialize filter manager
 	filterManager := filter.NewManager(cfg.Logging.EnableDebug)
 
 	// Initialize and register built-in filter providers
-	if err := initializeFilterProviders(filterManager, cfg); err != nil {
-		log.Fatalf("Failed to initialize filter providers: %v", err)
+	if err := initializeFilterProviders(filterManager, cfg, logger); err != nil {
+		logger.Critical("Failed to initialize filter providers: %v", err)
+		os.Exit(1)
 	}
 
 	// Create and start proxy server
 	server, err := proxy.NewServer(cfg, filterManager)
 	if err != nil {
-		log.Fatalf("Failed to create proxy server: %v", err)
+		logger.Critical("Failed to create proxy server: %v", err)
+		os.Exit(1)
 	}
 
 	// Set up config file watcher
 	configWatcher, err := config.NewConfigWatcher(configFile, loader)
 	if err != nil {
-		log.Fatalf("Failed to create config watcher: %v", err)
+		logger.Critical("Failed to create config watcher: %v", err)
+		os.Exit(1)
 	}
 
 	// Add callback for config changes
 	configWatcher.AddCallback(func(_, newConfig *config.Config) error {
-		log.Printf("Config file changed, reloading server configuration...")
+		logger.Config("Config file changed, reloading server configuration...")
+
+		// Update logger level if changed
+		logger.SetLevel(newConfig.Logging.ConsoleLevel)
 
 		// Reload server configuration
 		if err := server.ReloadConfig(newConfig); err != nil {
@@ -60,23 +74,25 @@ func main() {
 		}
 
 		// Reinitialize filter providers with new config
-		if err := reinitializeFilterProviders(filterManager, newConfig); err != nil {
+		if err := reinitializeFilterProviders(filterManager, newConfig, logger); err != nil {
 			return fmt.Errorf("failed to reinitialize filter providers: %w", err)
 		}
 
-		log.Printf("Configuration successfully reloaded")
+		logger.Config("Configuration successfully reloaded")
 		return nil
 	})
 
 	// Start config watcher
 	if err := configWatcher.Start(cfg); err != nil {
-		log.Fatalf("Failed to start config watcher: %v", err)
+		logger.Critical("Failed to start config watcher: %v", err)
+		os.Exit(1)
 	}
 	defer func() { _ = configWatcher.Stop() }()
 
 	// Start the server
 	if err := server.Start(); err != nil {
-		log.Fatalf("Failed to start proxy server: %v", err)
+		logger.Critical("Failed to start proxy server: %v", err)
+		os.Exit(1)
 	}
 
 	// Set up signal handling for graceful shutdown
@@ -84,26 +100,26 @@ func main() {
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 
 	// Start statistics reporting goroutine
-	go reportStatistics(server)
+	go reportStatistics(server, logger, cfg)
 
-	log.Println("Gander proxy server started successfully")
-	log.Printf("Configuration: Proxy=%s, Debug=%t, AutoCert=%t, UpstreamSniff=%t",
+	logger.Startup("Gander proxy server started successfully")
+	logger.Startup("Configuration: Proxy=%s, Debug=%t, AutoCert=%t, UpstreamSniff=%t",
 		cfg.Proxy.ListenAddr, cfg.Logging.EnableDebug, cfg.TLS.AutoGenerate, cfg.TLS.UpstreamCertSniff)
 
 	// Wait for shutdown signal
 	<-sigCh
-	log.Println("Received shutdown signal, stopping server...")
+	logger.Shutdown("Received shutdown signal, stopping server...")
 
 	// Graceful shutdown
 	if err := server.Stop(); err != nil {
-		log.Printf("Error during server shutdown: %v", err)
+		logger.Critical("Error during server shutdown: %v", err)
 	}
 
-	log.Println("Gander proxy server stopped")
+	logger.Shutdown("Gander proxy server stopped")
 }
 
 // initializeFilterProviders initializes and registers filter providers
-func initializeFilterProviders(manager *filter.Manager, cfg *config.Config) error {
+func initializeFilterProviders(manager *filter.Manager, cfg *config.Config, logger *logging.Logger) error {
 	// Initialize domain provider
 	domainProvider := providers.NewDomainFilterProvider()
 
@@ -151,23 +167,23 @@ func initializeFilterProviders(manager *filter.Manager, cfg *config.Config) erro
 		totalPacketFilters += packetFilters
 		totalInspectionFilters += inspectionFilters
 
-		log.Printf("Registered filter provider '%s': %d packet filters, %d inspection filters",
+		logger.Verbose("Registered filter provider '%s': %d packet filters, %d inspection filters",
 			name, packetFilters, inspectionFilters)
 	}
 
-	log.Printf("Filter system initialized: %d providers, %d packet filters, %d inspection filters",
+	logger.Info("Filter system initialized: %d providers, %d packet filters, %d inspection filters",
 		len(providers), totalPacketFilters, totalInspectionFilters)
 
 	// Log domain and IP filter details if debug is enabled
 	if cfg.Logging.EnableDebug {
-		logFilterDetails(cfg)
+		logFilterDetails(cfg, logger)
 	}
 
 	return nil
 }
 
 // logFilterDetails logs detailed filter configuration
-func logFilterDetails(cfg *config.Config) {
+func logFilterDetails(cfg *config.Config, logger *logging.Logger) {
 	// Count domain types
 	inspectDomains := len(cfg.Rules.InspectDomains)
 	bypassDomains := len(cfg.Rules.BypassDomains)
@@ -204,9 +220,9 @@ func logFilterDetails(cfg *config.Config) {
 		}
 	}
 
-	log.Printf("Domain filter: %d inspect domains (%d wildcards), %d bypass domains (%d wildcards)",
+	logger.Debug("Domain filter: %d inspect domains (%d wildcards), %d bypass domains (%d wildcards)",
 		inspectDomains, inspectWildcards, bypassDomains, bypassWildcards)
-	log.Printf("IP filter: %d inspect IPs (%d CIDRs), %d bypass IPs (%d CIDRs)",
+	logger.Debug("IP filter: %d inspect IPs (%d CIDRs), %d bypass IPs (%d CIDRs)",
 		inspectIPs, inspectCIDRs, bypassIPs, bypassCIDRs)
 }
 
@@ -221,7 +237,7 @@ func containsCIDR(ip string) bool {
 }
 
 // reinitializeFilterProviders reinitializes filter providers with new configuration
-func reinitializeFilterProviders(manager *filter.Manager, cfg *config.Config) error {
+func reinitializeFilterProviders(manager *filter.Manager, cfg *config.Config, logger *logging.Logger) error {
 	// Create provider configs from legacy rules
 	providerConfigs := map[string]interface{}{
 		"domain": map[string]interface{}{
@@ -240,27 +256,34 @@ func reinitializeFilterProviders(manager *filter.Manager, cfg *config.Config) er
 }
 
 // reportStatistics periodically reports server statistics
-func reportStatistics(server *proxy.Server) {
-	ticker := time.NewTicker(60 * time.Second)
+func reportStatistics(server *proxy.Server, logger *logging.Logger, cfg *config.Config) {
+	// Parse status interval
+	statusInterval, err := time.ParseDuration(cfg.Logging.StatusInterval)
+	if err != nil {
+		logger.Critical("Invalid status interval '%s', using default 1m: %v", cfg.Logging.StatusInterval, err)
+		statusInterval = time.Minute
+	}
+
+	ticker := time.NewTicker(statusInterval)
 	defer ticker.Stop()
 
 	for range ticker.C {
 		stats := server.GetStats()
 
 		if proxyStats, ok := stats["proxy"].(proxy.ProxyStatsSnapshot); ok {
-			log.Printf("Statistics: %d total connections, %d active, %d inspected, %.2f MB transferred",
-				proxyStats.TotalConnections,
+			logger.Status("%d active connections, %d total requests, %.1f MB transferred",
 				proxyStats.ActiveConnections,
-				proxyStats.InspectedConnections,
+				proxyStats.TotalConnections,
 				float64(proxyStats.BytesTransferred)/(1024*1024))
 		}
 
+		// Detailed stats go to file only (verbose)
 		if captureStats, ok := stats["capture"]; ok {
-			log.Printf("Capture Statistics: %+v", captureStats)
+			logger.Verbose("Capture Statistics: %+v", captureStats)
 		}
 
 		if certStats, ok := stats["certs"]; ok {
-			log.Printf("Certificate Statistics: %+v", certStats)
+			logger.Verbose("Certificate Statistics: %+v", certStats)
 		}
 	}
 }

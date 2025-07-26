@@ -23,7 +23,9 @@ func TestConfigSetDefaults(t *testing.T) {
 					KeepaliveTimeout: 300,
 				},
 				Logging: LoggingConfig{
-					MaxFileSize: 100,
+					MaxFileSize:    100,
+					ConsoleLevel:   "normal",
+					StatusInterval: "1m",
 				},
 				TLS: TLSConfig{
 					ValidDays: 365,
@@ -84,7 +86,9 @@ func TestConfigSetDefaults(t *testing.T) {
 					KeepaliveTimeout: 300,   // Default applied
 				},
 				Logging: LoggingConfig{
-					MaxFileSize: 100, // Default applied
+					MaxFileSize:    100, // Default applied
+					ConsoleLevel:   "normal",
+					StatusInterval: "1m",
 				},
 				TLS: TLSConfig{
 					ValidDays: 180,     // Preserved
@@ -141,7 +145,9 @@ func TestConfigSetDefaults(t *testing.T) {
 					KeepaliveTimeout: 300,
 				},
 				Logging: LoggingConfig{
-					MaxFileSize: 100,
+					MaxFileSize:    100,
+					ConsoleLevel:   "normal",
+					StatusInterval: "1m",
 				},
 				TLS: TLSConfig{
 					ValidDays: 365,

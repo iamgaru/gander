@@ -34,10 +34,12 @@ type ProxyConfig struct {
 
 // LoggingConfig contains logging settings
 type LoggingConfig struct {
-	LogFile     string `json:"log_file"`
-	CaptureDir  string `json:"capture_dir"`
-	MaxFileSize int64  `json:"max_file_size_mb"`
-	EnableDebug bool   `json:"enable_debug"`
+	LogFile        string `json:"log_file"`
+	CaptureDir     string `json:"capture_dir"`
+	MaxFileSize    int64  `json:"max_file_size_mb"`
+	EnableDebug    bool   `json:"enable_debug"`
+	ConsoleLevel   string `json:"console_level"`   // minimal, normal, debug
+	StatusInterval string `json:"status_interval"` // e.g., "1m", "30s"
 }
 
 // TLSConfig contains TLS/certificate settings
@@ -168,6 +170,12 @@ func (c *Config) SetDefaults() {
 	// Logging defaults
 	if c.Logging.MaxFileSize == 0 {
 		c.Logging.MaxFileSize = 100
+	}
+	if c.Logging.ConsoleLevel == "" {
+		c.Logging.ConsoleLevel = "normal" // minimal, normal, debug
+	}
+	if c.Logging.StatusInterval == "" {
+		c.Logging.StatusInterval = "1m"
 	}
 
 	// TLS defaults
