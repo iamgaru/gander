@@ -11,7 +11,7 @@
     "log_file": "logs/proxy.log",
     "capture_dir": "captures",
     "max_file_size_mb": 100,
-    "enable_debug": true,
+    "enable_debug": false,
     "console_level": "minimal",
     "status_interval": "60s"
   },

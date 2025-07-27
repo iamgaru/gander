@@ -208,6 +208,14 @@ func NewServer(cfg *config.Config, filterManager *filter.Manager) (*Server, erro
 
 	// Initialize capture manager
 	captureManager := capture.NewCaptureManager(cfg.Logging.CaptureDir, cfg.Logging.EnableDebug)
+	
+	// Configure capture organization scheme from storage config
+	captureConfig := capture.DefaultCaptureConfig()
+	if cfg.Storage.OrganizationScheme != "" {
+		captureConfig.OrganizationScheme = cfg.Storage.OrganizationScheme
+	}
+	captureManager.SetConfig(captureConfig)
+	
 	if err := captureManager.Initialize(); err != nil {
 		return nil, err
 	}
@@ -217,6 +225,11 @@ func NewServer(cfg *config.Config, filterManager *filter.Manager) (*Server, erro
 	logger, err := logging.NewLogger(cfg.Logging.ConsoleLevel, cfg.Logging.LogFile)
 	if err != nil {
 		return nil, err
+	}
+
+	// Configure log rotation if max file size is specified
+	if cfg.Logging.MaxFileSize > 0 {
+		logger.SetMaxFileSize(cfg.Logging.MaxFileSize)
 	}
 
 	// Set up relay debug logging to use file-only verbose logging
@@ -395,13 +408,18 @@ func (s *Server) handleConnection(clientConn net.Conn) {
 	s.stats.IncrementActive()
 	defer s.stats.DecrementActive()
 	
-	s.logger.Debug("New connection from %s", clientConn.RemoteAddr().String())
-
-	// Create connection info
+	// Create connection info with correlation ID
+	correlationID := logging.GenerateCorrelationID()
 	info := &relay.ConnectionInfo{
-		ClientIP:  clientConn.RemoteAddr().String(),
-		StartTime: time.Now(),
+		ClientIP:      clientConn.RemoteAddr().String(),
+		StartTime:     time.Now(),
+		CorrelationID: correlationID,
 	}
+
+	// Log connection initiation with structured logging
+	s.logger.DebugStructured(correlationID, "New connection initiated",
+		"client_ip", info.ClientIP,
+	)
 
 	// Read initial data to determine protocol using enhanced buffer pool
 	pooledBuffer := s.bufferPool.NewPooledBuffer(pool.SmallBuffer)
@@ -418,13 +436,22 @@ func (s *Server) handleConnection(clientConn net.Conn) {
 
 	// Detect protocol and extract connection information
 	if protocol.IsHTTPRequest(data) {
-		s.logger.Debug("Detected HTTP request from %s", info.ClientIP)
+		s.logger.DebugStructured(correlationID, "Protocol detected",
+			"protocol", "HTTP",
+			"client_ip", info.ClientIP,
+		)
 		s.handleHTTPConnection(clientConn, data, info)
 	} else if protocol.IsTLSHandshake(data) {
-		s.logger.Debug("Detected TLS handshake from %s", info.ClientIP)
+		s.logger.DebugStructured(correlationID, "Protocol detected",
+			"protocol", "TLS",
+			"client_ip", info.ClientIP,
+		)
 		s.handleTLSConnection(clientConn, data, info)
 	} else {
-		s.logger.Debug("Unknown protocol from %s", info.ClientIP)
+		s.logger.DebugStructured(correlationID, "Protocol detected",
+			"protocol", "Unknown",
+			"client_ip", info.ClientIP,
+		)
 		s.handleUnknownConnection(clientConn, data, info)
 	}
 }
@@ -471,14 +498,30 @@ func (s *Server) handleHTTPConnection(clientConn net.Conn, data []byte, info *re
 
 	switch decision.Result {
 	case filter.FilterBlock:
-		s.logger.Info("Blocked HTTP connection: %s -> %s", info.ClientIP, info.Domain)
+		s.logger.InfoStructured(info.CorrelationID, "Connection blocked by filter",
+			"client_ip", info.ClientIP,
+			"domain", info.Domain,
+			"reason", decision.Reason,
+		)
 		return
 	case filter.FilterBypass:
+		s.logger.DebugStructured(info.CorrelationID, "Connection bypassed",
+			"domain", info.Domain,
+			"reason", decision.Reason,
+		)
 		_ = s.relayer.HandleHTTPRelay(clientConn, data, info, false)
 	case filter.FilterInspect, filter.FilterCapture:
 		s.stats.IncrementInspected()
+		s.logger.DebugStructured(info.CorrelationID, "Connection marked for inspection",
+			"domain", info.Domain,
+			"action", decision.Result.String(),
+			"reason", decision.Reason,
+		)
 		_ = s.relayer.HandleHTTPRelay(clientConn, data, info, true)
 	default:
+		s.logger.DebugStructured(info.CorrelationID, "Connection using default handling",
+			"domain", info.Domain,
+		)
 		_ = s.relayer.HandleHTTPRelay(clientConn, data, info, false)
 	}
 
@@ -491,9 +534,16 @@ func (s *Server) handleTLSConnection(clientConn net.Conn, data []byte, info *rel
 	// Extract SNI from TLS handshake
 	sni := protocol.ExtractSNI(data)
 	if sni == "" {
-		s.logger.Verbose("Failed to extract SNI from TLS handshake")
+		s.logger.DebugStructured(info.CorrelationID, "Failed to extract SNI from TLS handshake",
+			"client_ip", info.ClientIP,
+		)
 		return
 	}
+
+	s.logger.DebugStructured(info.CorrelationID, "SNI extracted from TLS handshake",
+		"domain", sni,
+		"client_ip", info.ClientIP,
+	)
 
 	info.Domain = sni
 	info.ServerAddr = sni + ":443"
@@ -522,15 +572,31 @@ func (s *Server) handleTLSConnection(clientConn net.Conn, data []byte, info *rel
 
 	switch decision.Result {
 	case filter.FilterBlock:
-		s.logger.Info("Blocked HTTPS connection: %s -> %s", info.ClientIP, info.Domain)
+		s.logger.InfoStructured(info.CorrelationID, "HTTPS connection blocked by filter",
+			"client_ip", info.ClientIP,
+			"domain", info.Domain,
+			"reason", decision.Reason,
+		)
 		return
 	case filter.FilterBypass:
+		s.logger.DebugStructured(info.CorrelationID, "HTTPS connection bypassed",
+			"domain", info.Domain,
+			"reason", decision.Reason,
+		)
 		_ = s.relayer.HandleTransparentRelay(clientConn, data, info)
 	case filter.FilterInspect, filter.FilterCapture:
 		s.stats.IncrementInspected()
+		s.logger.DebugStructured(info.CorrelationID, "HTTPS connection marked for inspection",
+			"domain", info.Domain,
+			"action", decision.Result.String(),
+			"reason", decision.Reason,
+		)
 		// Filter manager already decided - perform HTTPS inspection
 		_ = s.relayer.HandleHTTPSInspection(clientConn, info.ServerAddr, info)
 	default:
+		s.logger.DebugStructured(info.CorrelationID, "HTTPS connection using transparent relay",
+			"domain", info.Domain,
+		)
 		_ = s.relayer.HandleTransparentRelay(clientConn, data, info)
 	}
 
@@ -704,25 +770,25 @@ func (s *Server) extractHostAndServerAddr(data []byte) (string, string) {
 	return host, host + ":80"
 }
 
-// logConnection logs connection information
+// logConnection logs connection information using structured logging
 func (s *Server) logConnection(info *relay.ConnectionInfo) {
 	duration := time.Since(info.StartTime)
-	logEntry := "[" + time.Now().Format("2006-01-02 15:04:05.000") + "] " +
-		info.ClientIP + " -> " + info.ServerAddr + " (" + info.Domain + ") | " +
-		duration.String() + " | " +
-		strconv.FormatInt(info.BytesRead, 10) + "/" + strconv.FormatInt(info.BytesWritten, 10) + " bytes | " +
-		info.Protocol + " | inspected=" +
-		func() string {
-			if info.BytesRead > 0 || info.BytesWritten > 0 {
-				return "true"
-			}
-			return "false"
-		}()
-
-	// Write to log file
-	if s.logFile != nil {
-		_, _ = s.logFile.WriteString(logEntry + "\n")
+	isInspected := "false"
+	if info.BytesRead > 0 || info.BytesWritten > 0 {
+		isInspected = "true"
 	}
+
+	// Use structured logging with correlation ID
+	s.logger.InfoStructured(info.CorrelationID, "Connection completed",
+		"client_ip", info.ClientIP,
+		"server_addr", info.ServerAddr,
+		"domain", info.Domain,
+		"protocol", info.Protocol,
+		"duration_ms", strconv.FormatInt(duration.Milliseconds(), 10),
+		"bytes_read", strconv.FormatInt(info.BytesRead, 10),
+		"bytes_written", strconv.FormatInt(info.BytesWritten, 10),
+		"inspected", isInspected,
+	)
 }
 
 // reportStats periodically reports statistics
@@ -980,6 +1046,14 @@ func (s *Server) reloadCertificateManager(cfg *config.Config) error {
 func (s *Server) reloadCaptureManager(cfg *config.Config) error {
 	// Create new capture manager
 	newCaptureManager := capture.NewCaptureManager(cfg.Logging.CaptureDir, cfg.Logging.EnableDebug)
+	
+	// Configure capture organization scheme from storage config
+	captureConfig := capture.DefaultCaptureConfig()
+	if cfg.Storage.OrganizationScheme != "" {
+		captureConfig.OrganizationScheme = cfg.Storage.OrganizationScheme
+	}
+	newCaptureManager.SetConfig(captureConfig)
+	
 	if err := newCaptureManager.Initialize(); err != nil {
 		return err
 	}

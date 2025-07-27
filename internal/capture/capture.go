@@ -77,6 +77,11 @@ type CaptureManager struct {
 
 	// Configuration
 	config *CaptureConfig
+
+	// New structured capture organization
+	organizationScheme string // "flat" or "domain"
+	requestCounter     map[string]int // Per-domain request counters
+	counterMutex       sync.RWMutex
 }
 
 // CaptureStats tracks capture statistics
@@ -103,6 +108,7 @@ type CaptureConfig struct {
 	IncludeBody        bool          `json:"include_body"`
 	SanitizeHeaders    bool          `json:"sanitize_headers"`
 	EnableMetadata     bool          `json:"enable_metadata"`
+	OrganizationScheme string        `json:"organization_scheme"` // "flat" or "domain"
 }
 
 // NewCaptureManager creates a new capture manager
@@ -113,6 +119,7 @@ func NewCaptureManager(captureDir string, enableDebug bool) *CaptureManager {
 		pendingRequests: make(map[string]*HTTPCapture),
 		stats:           NewCaptureStats(),
 		config:          DefaultCaptureConfig(),
+		requestCounter:  make(map[string]int),
 	}
 }
 
@@ -128,16 +135,27 @@ func DefaultCaptureConfig() *CaptureConfig {
 		IncludeBody:        true,
 		SanitizeHeaders:    true,
 		EnableMetadata:     true,
+		OrganizationScheme: "domain", // Default to new domain-based organization
 	}
 }
 
 // SetConfig sets the capture configuration
 func (cm *CaptureManager) SetConfig(config *CaptureConfig) {
 	cm.config = config
+	cm.organizationScheme = config.OrganizationScheme
+	if cm.organizationScheme == "" {
+		cm.organizationScheme = "domain" // Default to domain-based
+	}
 }
 
 // Initialize initializes the capture manager
 func (cm *CaptureManager) Initialize() error {
+	// Set organization scheme from config
+	cm.organizationScheme = cm.config.OrganizationScheme
+	if cm.organizationScheme == "" {
+		cm.organizationScheme = "domain" // Default to domain-based
+	}
+
 	// Create capture directory
 	if err := os.MkdirAll(cm.captureDir, 0755); err != nil {
 		return fmt.Errorf("failed to create capture directory: %w", err)
@@ -416,9 +434,26 @@ func (cm *CaptureManager) isSensitiveHeader(header string) bool {
 
 // saveCapture saves a capture to disk
 func (cm *CaptureManager) saveCapture(capture *HTTPCapture) error {
-	// Generate filename
-	filename := cm.generateFilename(capture)
-	filepath := filepath.Join(cm.captureDir, filename)
+	var filePath string
+	var err error
+
+	// Use different file organization based on scheme
+	if cm.organizationScheme == "domain" {
+		filePath, err = cm.generateDomainBasedPath(capture)
+	} else {
+		// Default to flat structure for backward compatibility
+		filename := cm.generateFilename(capture)
+		filePath = filepath.Join(cm.captureDir, filename)
+	}
+
+	if err != nil {
+		return fmt.Errorf("failed to generate file path: %w", err)
+	}
+
+	// Ensure directory exists
+	if err := os.MkdirAll(filepath.Dir(filePath), 0755); err != nil {
+		return fmt.Errorf("failed to create directory: %w", err)
+	}
 
 	// Marshal to JSON
 	data, err := json.MarshalIndent(capture, "", "  ")
@@ -427,18 +462,76 @@ func (cm *CaptureManager) saveCapture(capture *HTTPCapture) error {
 	}
 
 	// Write to file
-	if err := os.WriteFile(filepath, data, 0644); err != nil {
+	if err := os.WriteFile(filePath, data, 0644); err != nil {
 		return fmt.Errorf("failed to write capture file: %w", err)
 	}
 
+	// Update domain metadata for domain-based organization
+	if err := cm.createOrUpdateDomainMetadata(capture); err != nil {
+		// Log error but don't fail the capture save
+		if cm.enableDebug {
+			log.Printf("Failed to update domain metadata: %v", err)
+		}
+	}
+
 	if cm.enableDebug {
-		log.Printf("Saved capture to %s", filename)
+		relativePath, _ := filepath.Rel(cm.captureDir, filePath)
+		log.Printf("Saved capture to %s", relativePath)
 	}
 
 	return nil
 }
 
-// generateFilename generates a filename for a capture
+// generateDomainBasedPath generates a domain-based file path for a capture
+func (cm *CaptureManager) generateDomainBasedPath(capture *HTTPCapture) (string, error) {
+	// Sanitize domain name for filesystem
+	domain := cm.sanitizeDomainName(capture.Domain)
+	if domain == "" {
+		domain = "unknown_domain"
+	}
+
+	// Generate date string
+	dateStr := capture.Timestamp.Format("2006-01-02")
+
+	// Get request counter for this domain and date
+	cm.counterMutex.Lock()
+	counterKey := fmt.Sprintf("%s_%s", domain, dateStr)
+	cm.requestCounter[counterKey]++
+	requestNum := cm.requestCounter[counterKey]
+	cm.counterMutex.Unlock()
+
+	// Determine if this is a request or response
+	var subDir string
+	var typePrefix string
+	if capture.Response == nil {
+		subDir = "requests"
+		typePrefix = "req"
+	} else {
+		subDir = "responses"  
+		typePrefix = "resp"
+	}
+
+	// Generate filename with sequential numbering
+	method := strings.ToUpper(capture.Method)
+	if method == "" || method == "UNKNOWN" {
+		method = "REQ"
+	}
+
+	// Create safe path component
+	pathComponent := cm.sanitizePathComponent(capture.Path)
+	if pathComponent == "" {
+		pathComponent = "root"
+	}
+
+	filename := fmt.Sprintf("%03d_%s_%s_%s.json", requestNum, typePrefix, method, pathComponent)
+
+	// Build full path: captures/domain.com/2025-07-27/requests|responses/001_req_GET_api.json
+	fullPath := filepath.Join(cm.captureDir, domain, dateStr, subDir, filename)
+
+	return fullPath, nil
+}
+
+// generateFilename generates a filename for a capture (flat structure)
 func (cm *CaptureManager) generateFilename(capture *HTTPCapture) string {
 	timestamp := capture.Timestamp.Format("2006-01-02_15-04-05.000")
 	clientIP := strings.ReplaceAll(capture.ClientIP, ":", "_")
@@ -458,6 +551,179 @@ func (cm *CaptureManager) generateFilename(capture *HTTPCapture) string {
 
 	return fmt.Sprintf("%s_[%s]_%s_%s_%s.json",
 		timestamp, clientIP, domain, method, safePath)
+}
+
+// sanitizeDomainName sanitizes a domain name for use as a directory name
+func (cm *CaptureManager) sanitizeDomainName(domain string) string {
+	// Remove port if present
+	if colonIndex := strings.LastIndex(domain, ":"); colonIndex > 0 {
+		// Only remove if it looks like a port (numeric)
+		if portStr := domain[colonIndex+1:]; len(portStr) > 0 {
+			if _, err := fmt.Sscanf(portStr, "%d", new(int)); err == nil {
+				domain = domain[:colonIndex]
+			}
+		}
+	}
+
+	// Replace invalid filesystem characters
+	domain = strings.ReplaceAll(domain, ":", "_")
+	domain = strings.ReplaceAll(domain, "/", "_")
+	domain = strings.ReplaceAll(domain, "\\", "_")
+	domain = strings.ReplaceAll(domain, "?", "_")
+	domain = strings.ReplaceAll(domain, "*", "_")
+	domain = strings.ReplaceAll(domain, "|", "_")
+	domain = strings.ReplaceAll(domain, "<", "_")
+	domain = strings.ReplaceAll(domain, ">", "_")
+	domain = strings.ReplaceAll(domain, "\"", "_")
+
+	// Handle special cases
+	if domain == "" || domain == "localhost" {
+		return "localhost"
+	}
+
+	// Convert to lowercase for consistency
+	return strings.ToLower(domain)
+}
+
+// sanitizePathComponent sanitizes a URL path for use in filename
+func (cm *CaptureManager) sanitizePathComponent(path string) string {
+	if path == "" || path == "/" {
+		return "root"
+	}
+
+	// Remove leading slash
+	if strings.HasPrefix(path, "/") {
+		path = path[1:]
+	}
+
+	// Replace path separators and invalid characters
+	path = strings.ReplaceAll(path, "/", "_")
+	path = strings.ReplaceAll(path, "\\", "_")
+	path = strings.ReplaceAll(path, ":", "_")
+	path = strings.ReplaceAll(path, "?", "_")
+	path = strings.ReplaceAll(path, "*", "_")
+	path = strings.ReplaceAll(path, "|", "_")
+	path = strings.ReplaceAll(path, "<", "_")
+	path = strings.ReplaceAll(path, ">", "_")
+	path = strings.ReplaceAll(path, "\"", "_")
+	path = strings.ReplaceAll(path, " ", "_")
+
+	// Limit length
+	if len(path) > 40 {
+		path = path[:40]
+	}
+
+	// Remove trailing underscores
+	path = strings.TrimRight(path, "_")
+
+	if path == "" {
+		return "root"
+	}
+
+	return path
+}
+
+// DomainMetadata represents metadata for a domain's captures
+type DomainMetadata struct {
+	Domain             string            `json:"domain"`
+	FirstSeen          time.Time         `json:"first_seen"`
+	LastSeen           time.Time         `json:"last_seen"`
+	TotalRequests      int               `json:"total_requests"`
+	TotalResponses     int               `json:"total_responses"`
+	RequestsByMethod   map[string]int    `json:"requests_by_method"`
+	ResponsesByStatus  map[int]int       `json:"responses_by_status"`
+	CapturesByDate     map[string]int    `json:"captures_by_date"`
+	LastUpdated        time.Time         `json:"last_updated"`
+}
+
+// createOrUpdateDomainMetadata creates or updates metadata for a domain
+func (cm *CaptureManager) createOrUpdateDomainMetadata(capture *HTTPCapture) error {
+	if cm.organizationScheme != "domain" {
+		return nil // Only create metadata for domain-based organization
+	}
+
+	domain := cm.sanitizeDomainName(capture.Domain)
+	if domain == "" {
+		domain = "unknown_domain"
+	}
+
+	metadataPath := filepath.Join(cm.captureDir, domain, "metadata.json")
+
+	// Load existing metadata or create new
+	var metadata *DomainMetadata
+	if data, err := os.ReadFile(metadataPath); err == nil {
+		metadata = &DomainMetadata{}
+		if err := json.Unmarshal(data, metadata); err != nil {
+			// If unmarshal fails, create new metadata
+			metadata = cm.createNewDomainMetadata(capture.Domain)
+		}
+	} else {
+		metadata = cm.createNewDomainMetadata(capture.Domain)
+	}
+
+	// Update metadata with current capture
+	cm.updateMetadataWithCapture(metadata, capture)
+
+	// Ensure directory exists
+	if err := os.MkdirAll(filepath.Dir(metadataPath), 0755); err != nil {
+		return fmt.Errorf("failed to create metadata directory: %w", err)
+	}
+
+	// Save updated metadata
+	data, err := json.MarshalIndent(metadata, "", "  ")
+	if err != nil {
+		return fmt.Errorf("failed to marshal metadata: %w", err)
+	}
+
+	if err := os.WriteFile(metadataPath, data, 0644); err != nil {
+		return fmt.Errorf("failed to write metadata file: %w", err)
+	}
+
+	return nil
+}
+
+// createNewDomainMetadata creates new metadata for a domain
+func (cm *CaptureManager) createNewDomainMetadata(domain string) *DomainMetadata {
+	return &DomainMetadata{
+		Domain:            domain,
+		FirstSeen:         time.Now(),
+		LastSeen:          time.Now(),
+		TotalRequests:     0,
+		TotalResponses:    0,
+		RequestsByMethod:  make(map[string]int),
+		ResponsesByStatus: make(map[int]int),
+		CapturesByDate:    make(map[string]int),
+		LastUpdated:       time.Now(),
+	}
+}
+
+// updateMetadataWithCapture updates metadata with information from a capture
+func (cm *CaptureManager) updateMetadataWithCapture(metadata *DomainMetadata, capture *HTTPCapture) {
+	// Update timestamps
+	if capture.Timestamp.Before(metadata.FirstSeen) {
+		metadata.FirstSeen = capture.Timestamp
+	}
+	if capture.Timestamp.After(metadata.LastSeen) {
+		metadata.LastSeen = capture.Timestamp
+	}
+	metadata.LastUpdated = time.Now()
+
+	// Update counters
+	dateStr := capture.Timestamp.Format("2006-01-02")
+	metadata.CapturesByDate[dateStr]++
+
+	// Count requests and responses
+	if capture.Response == nil {
+		metadata.TotalRequests++
+		if capture.Method != "" {
+			metadata.RequestsByMethod[capture.Method]++
+		}
+	} else {
+		metadata.TotalResponses++
+		if capture.Response.StatusCode > 0 {
+			metadata.ResponsesByStatus[capture.Response.StatusCode]++
+		}
+	}
 }
 
 // cleanupPendingRequests periodically cleans up pending requests that have timed out

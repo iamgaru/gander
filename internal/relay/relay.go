@@ -23,15 +23,16 @@ const (
 
 // ConnectionInfo contains metadata about a proxy connection (duplicated to avoid import cycle)
 type ConnectionInfo struct {
-	ClientIP     string
-	ServerAddr   string
-	Domain       string
-	Port         string
-	Protocol     string
-	StartTime    time.Time
-	BytesRead    int64
-	BytesWritten int64
-	IsHTTPS      bool
+	ClientIP      string
+	ServerAddr    string
+	Domain        string
+	Port          string
+	Protocol      string
+	StartTime     time.Time
+	BytesRead     int64
+	BytesWritten  int64
+	IsHTTPS       bool
+	CorrelationID string
 }
 
 // RelayMode defines different types of relaying

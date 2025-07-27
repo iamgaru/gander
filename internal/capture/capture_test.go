@@ -89,6 +89,12 @@ func TestCaptureHTTPRequest(t *testing.T) {
 func TestCaptureHTTPResponse(t *testing.T) {
 	tempDir := t.TempDir()
 	manager := NewCaptureManager(tempDir, false)
+	
+	// Use flat organization for this test
+	config := DefaultCaptureConfig()
+	config.OrganizationScheme = "flat"
+	manager.SetConfig(config)
+	
 	err := manager.Initialize()
 	if err != nil {
 		t.Fatalf("Failed to initialize capture manager: %v", err)
@@ -347,5 +353,154 @@ func BenchmarkHeaderExtraction(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		manager.extractHeaders(headers)
+	}
+}
+
+// TestDomainBasedCapture tests the domain-based capture directory structure
+func TestDomainBasedCapture(t *testing.T) {
+	// Create temporary directory for testing
+	testDir := t.TempDir()
+
+	// Create capture manager with domain-based organization
+	manager := NewCaptureManager(testDir, true)
+	config := DefaultCaptureConfig()
+	config.OrganizationScheme = "domain"
+	manager.SetConfig(config)
+
+	if err := manager.Initialize(); err != nil {
+		t.Fatalf("Failed to initialize capture manager: %v", err)
+	}
+
+	// Create test HTTP request
+	req, err := http.NewRequest("GET", "https://example.com/api/test", nil)
+	if err != nil {
+		t.Fatalf("Failed to create test request: %v", err)
+	}
+	req.Host = "example.com"
+
+	// Capture the request
+	if err := manager.CaptureHTTPRequest(req, "127.0.0.1:12345"); err != nil {
+		t.Fatalf("Failed to capture HTTP request: %v", err)
+	}
+
+	// Create a dummy response to complete the request/response pair
+	resp := &http.Response{
+		StatusCode: 200,
+		Status:     "200 OK",
+		Header:     make(http.Header),
+		Request:    req,
+	}
+	resp.Header.Set("Content-Type", "application/json")
+
+	// Capture the response to trigger the complete capture save
+	if err := manager.CaptureHTTPResponse(resp, "127.0.0.1:12345"); err != nil {
+		t.Fatalf("Failed to capture HTTP response: %v", err)
+	}
+
+	// Verify domain-based directory structure was created
+	expectedDomainDir := filepath.Join(testDir, "example.com")
+	if _, err := os.Stat(expectedDomainDir); os.IsNotExist(err) {
+		t.Errorf("Expected domain directory %s to be created", expectedDomainDir)
+	}
+
+	// Verify date directory was created
+	dateStr := time.Now().Format("2006-01-02")
+	expectedDateDir := filepath.Join(expectedDomainDir, dateStr)
+	if _, err := os.Stat(expectedDateDir); os.IsNotExist(err) {
+		t.Errorf("Expected date directory %s to be created", expectedDateDir)
+	}
+
+	// Verify responses directory was created (since we captured a complete request/response pair)
+	expectedResponsesDir := filepath.Join(expectedDateDir, "responses")
+	if _, err := os.Stat(expectedResponsesDir); os.IsNotExist(err) {
+		t.Errorf("Expected responses directory %s to be created", expectedResponsesDir)
+	}
+
+	// Verify metadata file was created
+	expectedMetadataFile := filepath.Join(expectedDomainDir, "metadata.json")
+	if _, err := os.Stat(expectedMetadataFile); os.IsNotExist(err) {
+		t.Errorf("Expected metadata file %s to be created", expectedMetadataFile)
+	}
+
+	// Verify capture file was created with correct naming
+	files, err := os.ReadDir(expectedResponsesDir)
+	if err != nil {
+		t.Fatalf("Failed to read responses directory: %v", err)
+	}
+
+	if len(files) != 1 {
+		t.Errorf("Expected 1 capture file, got %d", len(files))
+	}
+
+	// Check filename format: should be 001_resp_GET_api_test.json
+	filename := files[0].Name()
+	if !strings.HasPrefix(filename, "001_resp_GET_") {
+		t.Errorf("Expected filename to start with '001_resp_GET_', got %s", filename)
+	}
+}
+
+// TestDomainBasedCaptureWithResponse tests request/response pairing
+func TestDomainBasedCaptureWithResponse(t *testing.T) {
+	// Create temporary directory for testing
+	testDir := t.TempDir()
+
+	// Create capture manager with domain-based organization
+	manager := NewCaptureManager(testDir, true)
+	config := DefaultCaptureConfig()
+	config.OrganizationScheme = "domain"
+	manager.SetConfig(config)
+
+	if err := manager.Initialize(); err != nil {
+		t.Fatalf("Failed to initialize capture manager: %v", err)
+	}
+
+	// Create test HTTP request
+	req, err := http.NewRequest("POST", "https://api.github.com/user", nil)
+	if err != nil {
+		t.Fatalf("Failed to create test request: %v", err)
+	}
+	req.Host = "api.github.com"
+
+	// Capture the request
+	if err := manager.CaptureHTTPRequest(req, "127.0.0.1:54321"); err != nil {
+		t.Fatalf("Failed to capture HTTP request: %v", err)
+	}
+
+	// Create test HTTP response
+	resp := &http.Response{
+		StatusCode: 200,
+		Status:     "200 OK",
+		Header:     make(http.Header),
+		Request:    req,
+	}
+	resp.Header.Set("Content-Type", "application/json")
+
+	// Capture the response
+	if err := manager.CaptureHTTPResponse(resp, "127.0.0.1:54321"); err != nil {
+		t.Fatalf("Failed to capture HTTP response: %v", err)
+	}
+
+	// Verify api.github.com domain directory was created
+	expectedDomainDir := filepath.Join(testDir, "api.github.com")
+	if _, err := os.Stat(expectedDomainDir); os.IsNotExist(err) {
+		t.Errorf("Expected domain directory %s to be created", expectedDomainDir)
+	}
+
+	// Verify both requests and responses directories exist
+	dateStr := time.Now().Format("2006-01-02")
+	expectedResponsesDir := filepath.Join(expectedDomainDir, dateStr, "responses")
+
+	if _, err := os.Stat(expectedResponsesDir); os.IsNotExist(err) {
+		t.Errorf("Expected responses directory %s to be created", expectedResponsesDir)
+	}
+
+	// Check that response file was created  
+	responseFiles, err := os.ReadDir(expectedResponsesDir)
+	if err != nil {
+		t.Fatalf("Failed to read responses directory: %v", err)
+	}
+
+	if len(responseFiles) == 0 {
+		t.Error("Expected at least 1 response file")
 	}
 }

@@ -132,6 +132,25 @@ type WorkerPoolConfig struct {
 	JobTimeoutSec int  `json:"job_timeout_seconds"`
 }
 
+// StorageConfig contains storage and capture organization settings
+type StorageConfig struct {
+	CompressionEnabled bool   `json:"compression_enabled"`
+	CompressionFormat  string `json:"compression_format"`
+	RollingEnabled     bool   `json:"rolling_enabled"`
+	MaxFileSize        int64  `json:"max_file_size"`
+	CaptureLevel       string `json:"capture_level"`
+	RetentionPeriod    string `json:"retention_period"`
+	OrganizationScheme string `json:"organization_scheme"` // "flat" or "domain"
+}
+
+// IdentityConfig contains identity tracking settings
+type IdentityConfig struct {
+	Enabled          bool                         `json:"enabled"`
+	EnabledProviders []string                     `json:"enabled_providers"`
+	CacheTTL         string                       `json:"cache_ttl"`
+	ProviderConfigs  map[string]interface{}       `json:"provider_configs"`
+}
+
 // Config is the main configuration structure
 type Config struct {
 	Proxy       ProxyConfig            `json:"proxy"`
@@ -140,6 +159,8 @@ type Config struct {
 	Filters     FiltersConfig          `json:"filters"`
 	Providers   map[string]interface{} `json:"providers"`
 	Performance PerformanceConfig      `json:"performance"`
+	Storage     StorageConfig          `json:"storage"`
+	Identity    IdentityConfig         `json:"identity"`
 
 	// Legacy support - will be mapped to built-in providers
 	Rules LegacyRulesConfig `json:"rules"`
