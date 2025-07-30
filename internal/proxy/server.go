@@ -211,6 +211,7 @@ func NewServer(cfg *config.Config, filterManager *filter.Manager) (*Server, erro
 	
 	// Configure capture organization scheme from storage config
 	captureConfig := capture.DefaultCaptureConfig()
+	// Only set organization scheme if storage config exists and is not empty
 	if cfg.Storage.OrganizationScheme != "" {
 		captureConfig.OrganizationScheme = cfg.Storage.OrganizationScheme
 	}
@@ -1049,6 +1050,7 @@ func (s *Server) reloadCaptureManager(cfg *config.Config) error {
 	
 	// Configure capture organization scheme from storage config
 	captureConfig := capture.DefaultCaptureConfig()
+	// Only set organization scheme if storage config exists and is not empty
 	if cfg.Storage.OrganizationScheme != "" {
 		captureConfig.OrganizationScheme = cfg.Storage.OrganizationScheme
 	}
