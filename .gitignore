@@ -51,4 +51,7 @@ go.work
 # binary 
 gander
 
+# captures 
+captures
+
 .claude/

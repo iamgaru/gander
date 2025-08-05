@@ -34,10 +34,28 @@ type ProxyConfig struct {
 
 // LoggingConfig contains logging settings
 type LoggingConfig struct {
-	LogFile     string `json:"log_file"`
-	CaptureDir  string `json:"capture_dir"`
-	MaxFileSize int64  `json:"max_file_size_mb"`
-	EnableDebug bool   `json:"enable_debug"`
+	LogFile        string                             `json:"log_file"`
+	CaptureDir     string                             `json:"capture_dir"`
+	MaxFileSize    int64                              `json:"max_file_size_mb"`
+	EnableDebug    bool                               `json:"enable_debug"`
+	ConsoleLevel   string                             `json:"console_level"`   // minimal, normal, debug
+	StatusInterval string                             `json:"status_interval"` // e.g., "1m", "30s"
+	FeatureLogs    *FeatureLogsConfig                 `json:"feature_logs,omitempty"`
+}
+
+// FeatureLogConfig holds configuration for individual feature logs
+type FeatureLogConfig struct {
+	Enabled bool   `json:"enabled"`
+	Level   string `json:"level"`
+}
+
+// FeatureLogsConfig holds configuration for all feature logs
+type FeatureLogsConfig struct {
+	Enabled         bool                        `json:"enabled"`
+	MaxFileSizeMB   int64                       `json:"max_file_size_mb"`
+	MaxFiles        int                         `json:"max_files"`
+	Compression     bool                        `json:"compression"`
+	Logs            map[string]FeatureLogConfig `json:"logs"`
 }
 
 // TLSConfig contains TLS/certificate settings
@@ -130,6 +148,25 @@ type WorkerPoolConfig struct {
 	JobTimeoutSec int  `json:"job_timeout_seconds"`
 }
 
+// StorageConfig contains storage and capture organization settings
+type StorageConfig struct {
+	CompressionEnabled bool   `json:"compression_enabled"`
+	CompressionFormat  string `json:"compression_format"`
+	RollingEnabled     bool   `json:"rolling_enabled"`
+	MaxFileSize        int64  `json:"max_file_size"`
+	CaptureLevel       string `json:"capture_level"`
+	RetentionPeriod    string `json:"retention_period"`
+	OrganizationScheme string `json:"organization_scheme"` // "flat" or "domain"
+}
+
+// IdentityConfig contains identity tracking settings
+type IdentityConfig struct {
+	Enabled          bool                         `json:"enabled"`
+	EnabledProviders []string                     `json:"enabled_providers"`
+	CacheTTL         string                       `json:"cache_ttl"`
+	ProviderConfigs  map[string]interface{}       `json:"provider_configs"`
+}
+
 // Config is the main configuration structure
 type Config struct {
 	Proxy       ProxyConfig            `json:"proxy"`
@@ -138,6 +175,8 @@ type Config struct {
 	Filters     FiltersConfig          `json:"filters"`
 	Providers   map[string]interface{} `json:"providers"`
 	Performance PerformanceConfig      `json:"performance"`
+	Storage     StorageConfig          `json:"storage"`
+	Identity    IdentityConfig         `json:"identity"`
 
 	// Legacy support - will be mapped to built-in providers
 	Rules LegacyRulesConfig `json:"rules"`
@@ -168,6 +207,12 @@ func (c *Config) SetDefaults() {
 	// Logging defaults
 	if c.Logging.MaxFileSize == 0 {
 		c.Logging.MaxFileSize = 100
+	}
+	if c.Logging.ConsoleLevel == "" {
+		c.Logging.ConsoleLevel = "normal" // minimal, normal, debug
+	}
+	if c.Logging.StatusInterval == "" {
+		c.Logging.StatusInterval = "1m"
 	}
 
 	// TLS defaults

@@ -6,7 +6,6 @@ import (
 	"crypto/tls"
 	"fmt"
 	"io"
-	"log"
 	"net"
 	"net/http"
 	"strings"
@@ -24,15 +23,16 @@ const (
 
 // ConnectionInfo contains metadata about a proxy connection (duplicated to avoid import cycle)
 type ConnectionInfo struct {
-	ClientIP     string
-	ServerAddr   string
-	Domain       string
-	Port         string
-	Protocol     string
-	StartTime    time.Time
-	BytesRead    int64
-	BytesWritten int64
-	IsHTTPS      bool
+	ClientIP      string
+	ServerAddr    string
+	Domain        string
+	Port          string
+	Protocol      string
+	StartTime     time.Time
+	BytesRead     int64
+	BytesWritten  int64
+	IsHTTPS       bool
+	CorrelationID string
 }
 
 // RelayMode defines different types of relaying
@@ -85,6 +85,7 @@ type Relayer struct {
 	certManager     cert.CertificateProvider
 	captureHandler  CaptureHandler
 	stats           *RelayStats
+	debugLogger     func(string, ...interface{}) // File-only debug logging function
 }
 
 // RelayStats tracks relay performance statistics
@@ -144,6 +145,18 @@ func (r *Relayer) SetCaptureHandler(handler CaptureHandler) {
 	r.captureHandler = handler
 }
 
+// SetDebugLogger sets a file-only debug logging function
+func (r *Relayer) SetDebugLogger(logger func(string, ...interface{})) {
+	r.debugLogger = logger
+}
+
+// logDebug logs debug messages to file only (never console)
+func (r *Relayer) logDebug(format string, args ...interface{}) {
+	if r.enableDebug && r.debugLogger != nil {
+		r.debugLogger(format, args...)
+	}
+}
+
 // SetTLSSessionCache sets the TLS session cache
 func (r *Relayer) SetTLSSessionCache(cache *tlsopt.SessionCache) {
 	r.tlsSessionCache = cache
@@ -183,9 +196,7 @@ func (r *Relayer) HandleFastRelay(clientConn net.Conn, serverAddr string, info *
 	}
 	defer serverConn.Close()
 
-	if r.enableDebug {
-		log.Printf("Fast relay: %s -> %s", clientConn.RemoteAddr(), serverAddr)
-	}
+	r.logDebug("Fast relay: %s -> %s", clientConn.RemoteAddr(), serverAddr)
 
 	// Bidirectional relay
 	return r.bidirectionalRelay(clientConn, serverConn, info)
@@ -222,10 +233,8 @@ func (r *Relayer) HandleTransparentRelay(clientConn net.Conn, initialData []byte
 		r.stats.AddBytesTransferred(int64(len(initialData)))
 	}
 
-	if r.enableDebug {
-		log.Printf("Transparent relay: %s -> %s (initial data: %d bytes)",
-			clientConn.RemoteAddr(), info.ServerAddr, len(initialData))
-	}
+	r.logDebug("Transparent relay: %s -> %s (initial data: %d bytes)", 
+		clientConn.RemoteAddr(), info.ServerAddr, len(initialData))
 
 	// Bidirectional relay
 	return r.bidirectionalRelay(clientConn, serverConn, info)
@@ -264,7 +273,7 @@ func (r *Relayer) HandleHTTPRelay(clientConn net.Conn, initialData []byte, info 
 		// Capture request if inspection is enabled
 		if inspect && r.captureHandler != nil {
 			if err := r.captureHandler.CaptureHTTPRequest(req, info.ClientIP); err != nil {
-				log.Printf("Failed to capture HTTP request: %v", err)
+				r.logDebug("Failed to capture HTTP request: %v", err)
 			}
 		}
 
@@ -300,7 +309,7 @@ func (r *Relayer) HandleHTTPRelay(clientConn net.Conn, initialData []byte, info 
 		// Capture response if inspection is enabled
 		if inspect && r.captureHandler != nil {
 			if err := r.captureHandler.CaptureHTTPResponse(resp, info.ClientIP); err != nil {
-				log.Printf("Failed to capture HTTP response: %v", err)
+				r.logDebug("Failed to capture HTTP response: %v", err)
 			}
 		}
 
@@ -338,8 +347,7 @@ func (r *Relayer) HandleHTTPSInspection(clientConn net.Conn, serverAddr string, 
 	// Get certificate for the domain
 	tlsCert, err := r.certManager.GetTLSCertificate(info.Domain)
 	if err != nil {
-		log.Printf("Failed to get certificate for %s: %v", info.Domain, err)
-		// Fallback to transparent relay
+		// Certificate failure - fallback to transparent relay (logged elsewhere)
 		return r.HandleTransparentRelay(clientConn, nil, info)
 	}
 
@@ -357,10 +365,8 @@ func (r *Relayer) HandleHTTPSInspection(clientConn net.Conn, serverAddr string, 
 		return fmt.Errorf("TLS handshake failed: %w", err)
 	}
 
-	if r.enableDebug {
-		log.Printf("HTTPS inspection: %s -> %s (domain: %s)",
-			clientConn.RemoteAddr(), serverAddr, info.Domain)
-	}
+	r.logDebug("HTTPS inspection: %s -> %s (domain: %s)", 
+		clientConn.RemoteAddr(), serverAddr, info.Domain)
 
 	// Create TLS config with session resumption
 	tlsConfig2 := &tls.Config{
@@ -461,7 +467,7 @@ func (r *Relayer) handleHTTPSTraffic(clientConn, serverConn *tls.Conn, info *Con
 		// Capture request if handler is available
 		if r.captureHandler != nil {
 			if err := r.captureHandler.CaptureHTTPRequest(req, info.ClientIP); err != nil {
-				log.Printf("Failed to capture HTTPS request: %v", err)
+				r.logDebug("Failed to capture HTTPS request: %v", err)
 			}
 		}
 
@@ -480,7 +486,7 @@ func (r *Relayer) handleHTTPSTraffic(clientConn, serverConn *tls.Conn, info *Con
 		// Capture response if handler is available
 		if r.captureHandler != nil {
 			if err := r.captureHandler.CaptureHTTPResponse(resp, info.ClientIP); err != nil {
-				log.Printf("Failed to capture HTTPS response: %v", err)
+				r.logDebug("Failed to capture HTTPS response: %v", err)
 			}
 		}
 
@@ -504,20 +510,12 @@ func (r *Relayer) handleHTTPSTraffic(clientConn, serverConn *tls.Conn, info *Con
 func (r *Relayer) bidirectionalRelay(clientConn, serverConn net.Conn, info *ConnectionInfo) error {
 	// Set timeouts
 	if r.readTimeout > 0 {
-		if err := clientConn.SetReadDeadline(time.Now().Add(r.readTimeout)); err != nil {
-			log.Printf("Failed to set client read deadline: %v", err)
-		}
-		if err := serverConn.SetReadDeadline(time.Now().Add(r.readTimeout)); err != nil {
-			log.Printf("Failed to set server read deadline: %v", err)
-		}
+		_ = clientConn.SetReadDeadline(time.Now().Add(r.readTimeout))
+		_ = serverConn.SetReadDeadline(time.Now().Add(r.readTimeout))
 	}
 	if r.writeTimeout > 0 {
-		if err := clientConn.SetWriteDeadline(time.Now().Add(r.writeTimeout)); err != nil {
-			log.Printf("Failed to set client write deadline: %v", err)
-		}
-		if err := serverConn.SetWriteDeadline(time.Now().Add(r.writeTimeout)); err != nil {
-			log.Printf("Failed to set server write deadline: %v", err)
-		}
+		_ = clientConn.SetWriteDeadline(time.Now().Add(r.writeTimeout))
+		_ = serverConn.SetWriteDeadline(time.Now().Add(r.writeTimeout))
 	}
 
 	// Use wait group to handle both directions
@@ -528,8 +526,8 @@ func (r *Relayer) bidirectionalRelay(clientConn, serverConn net.Conn, info *Conn
 	go func() {
 		defer wg.Done()
 		written, err := r.copyWithBuffer(serverConn, clientConn)
-		if err != nil && r.enableDebug {
-			log.Printf("Client->Server relay error: %v", err)
+		if err != nil {
+			r.logDebug("Client->Server relay error: %v", err)
 		}
 		info.BytesRead += written
 		r.stats.AddBytesTransferred(written)
@@ -540,8 +538,8 @@ func (r *Relayer) bidirectionalRelay(clientConn, serverConn net.Conn, info *Conn
 	go func() {
 		defer wg.Done()
 		written, err := r.copyWithBuffer(clientConn, serverConn)
-		if err != nil && r.enableDebug {
-			log.Printf("Server->Client relay error: %v", err)
+		if err != nil {
+			r.logDebug("Server->Client relay error: %v", err)
 		}
 		info.BytesWritten += written
 		r.stats.AddBytesTransferred(written)

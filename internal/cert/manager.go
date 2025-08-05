@@ -42,6 +42,11 @@ func (cm *DefaultCertManager) SetTLSSessionCache(cache *tlsopt.SessionCache) {
 	cm.tlsConfigBuilder = tlsopt.NewTLSConfigBuilder(cache, cm.enableDebug)
 }
 
+// SetCertLogger sets the certificate logging callback
+func (cm *DefaultCertManager) SetCertLogger(logFunc CertLogFunc) {
+	cm.logFunc = logFunc
+}
+
 // Initialize initializes the certificate manager
 func (cm *DefaultCertManager) Initialize(config *CertConfig) error {
 	cm.config = config
@@ -72,10 +77,7 @@ func (cm *DefaultCertManager) Initialize(config *CertConfig) error {
 		}
 	}
 
-	if cm.enableDebug {
-		log.Printf("Certificate manager initialized with auto-generate=%t, upstream-sniff=%t",
-			config.AutoGenerate, config.UpstreamCertSniff)
-	}
+	// Certificate manager initialized silently - details in log file only
 
 	return nil
 }
@@ -136,10 +138,7 @@ func (cm *DefaultCertManager) LoadCA() error {
 	cm.caKey = caKey
 	cm.caTLSCert = caTLSCert
 
-	if cm.enableDebug {
-		log.Printf("Loaded CA certificate: Subject=%s, Valid until=%s",
-			caCert.Subject.CommonName, caCert.NotAfter.Format("2006-01-02"))
-	}
+	// CA certificate loaded silently - details in log file only
 
 	return nil
 }
@@ -155,6 +154,10 @@ func (cm *DefaultCertManager) GetCertificate(domain string) (*Certificate, error
 		if time.Now().Before(cert.ExpiresAt) {
 			cm.cacheMutex.RUnlock()
 			cm.stats.IncrementCacheHit()
+			// Log cache hit
+			if cm.logFunc != nil {
+				cm.logFunc("cache_hit", domain, 0, "success", nil)
+			}
 			return cert, nil
 		}
 		// Certificate expired
@@ -165,11 +168,19 @@ func (cm *DefaultCertManager) GetCertificate(domain string) (*Certificate, error
 		cm.stats.ExpiredCerts++
 		cm.stats.mutex.Unlock()
 		cm.cacheMutex.Unlock()
+		// Log expiration
+		if cm.logFunc != nil {
+			cm.logFunc("expire", domain, 0, "success", map[string]interface{}{"reason": "expired"})
+		}
 	} else {
 		cm.cacheMutex.RUnlock()
 	}
 
 	cm.stats.IncrementCacheMiss()
+	// Log cache miss
+	if cm.logFunc != nil {
+		cm.logFunc("cache_miss", domain, 0, "success", nil)
+	}
 
 	// Generate new certificate
 	var upstreamInfo *UpstreamCertInfo
@@ -177,14 +188,25 @@ func (cm *DefaultCertManager) GetCertificate(domain string) (*Certificate, error
 		if info, err := cm.SniffUpstreamCert(domain, 443); err == nil {
 			upstreamInfo = info
 			cm.stats.IncrementUpstreamSniff()
-		} else if cm.enableDebug {
-			log.Printf("Failed to sniff upstream cert for %s: %v", domain, err)
 		}
+		// Upstream cert sniff failures logged to file only
 	}
 
+	start := time.Now()
 	cert, err := cm.GenerateCertificate(domain, upstreamInfo)
+	duration := time.Since(start)
+	
 	if err != nil {
+		// Log generation failure
+		if cm.logFunc != nil {
+			cm.logFunc("generate", domain, duration, "error", map[string]interface{}{"error": err.Error()})
+		}
 		return nil, err
+	}
+	
+	// Log successful generation
+	if cm.logFunc != nil {
+		cm.logFunc("generate", domain, duration, "success", nil)
 	}
 
 	// Cache the certificate
@@ -288,10 +310,7 @@ func (cm *DefaultCertManager) GenerateCertificate(domain string, template *Upstr
 
 	// If we have upstream certificate info, use it to enhance the certificate
 	if template != nil {
-		if cm.enableDebug {
-			log.Printf("Using upstream cert template for %s: CN=%s, SANs=%v, Org=%v",
-				domain, template.CommonName, template.SubjectAltNames, template.Organization)
-		}
+		// Using upstream cert template - details logged to file only
 
 		// Use upstream organization if available
 		if len(template.Organization) > 0 {
@@ -366,10 +385,7 @@ func (cm *DefaultCertManager) GenerateCertificate(domain string, template *Upstr
 
 	cm.stats.IncrementGenerated()
 
-	if cm.enableDebug {
-		log.Printf("Generated certificate for %s: Subject=%s, SANs=%v, Valid until=%s",
-			domain, cert.Subject.CommonName, cert.DNSNames, cert.NotAfter.Format("2006-01-02"))
-	}
+	// Certificate generated - details logged to file only
 
 	return managedCert, nil
 }
@@ -461,9 +477,7 @@ func (cm *DefaultCertManager) ClearCache() int {
 		cm.stats.CachedCerts = int64(len(cm.certCache))
 		cm.stats.mutex.Unlock()
 
-		if cm.enableDebug {
-			log.Printf("Cleared %d expired certificates from cache", cleared)
-		}
+		// Expired certificates cleared - details logged to file only
 	}
 
 	return cleared

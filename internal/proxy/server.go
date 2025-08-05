@@ -3,8 +3,8 @@ package proxy
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"io"
-	"log"
 	"net"
 	"os"
 	"runtime"
@@ -16,6 +16,7 @@ import (
 	"github.com/iamgaru/gander/internal/cert"
 	"github.com/iamgaru/gander/internal/config"
 	"github.com/iamgaru/gander/internal/filter"
+	"github.com/iamgaru/gander/internal/logging"
 	"github.com/iamgaru/gander/internal/pool"
 	"github.com/iamgaru/gander/internal/relay"
 	tlsopt "github.com/iamgaru/gander/internal/tls"
@@ -23,11 +24,37 @@ import (
 	"github.com/iamgaru/gander/pkg/protocol"
 )
 
+// normalizeTarget ensures proper formatting for network addresses, especially IPv6
+func normalizeTarget(target string) string {
+	// Check if this looks like an IPv6 address with port
+	if strings.Contains(target, ":") && !strings.HasPrefix(target, "[") {
+		// Count colons to detect IPv6
+		colonCount := strings.Count(target, ":")
+		if colonCount > 1 {
+			// Find the last colon (should be the port separator)
+			lastColon := strings.LastIndex(target, ":")
+			if lastColon > 0 && lastColon < len(target)-1 {
+				host := target[:lastColon]
+				port := target[lastColon+1:]
+				
+				// Validate that port is actually a number
+				if _, err := strconv.Atoi(port); err == nil {
+					// This looks like IPv6 with port, add brackets
+					return "[" + host + "]:" + port
+				}
+			}
+		}
+	}
+	// Return as-is if not IPv6 or already properly formatted
+	return target
+}
+
 // Server represents the main proxy server
 type Server struct {
 	config        *config.Config
 	filterManager *filter.Manager
 	stats         *ProxyStats
+	logger        *logging.Logger
 
 	// Core components - Enhanced
 	bufferPool       *pool.EnhancedBufferPool
@@ -40,8 +67,9 @@ type Server struct {
 	captureManager   *capture.CaptureManager
 
 	// Runtime state
-	logFile    *os.File
-	shutdownCh chan struct{}
+	logFile        *os.File
+	shutdownCh     chan struct{}
+	configReloadCh chan struct{}
 
 	// Listeners
 	httpListener  net.Listener
@@ -181,15 +209,65 @@ func NewServer(cfg *config.Config, filterManager *filter.Manager) (*Server, erro
 
 	// Initialize capture manager
 	captureManager := capture.NewCaptureManager(cfg.Logging.CaptureDir, cfg.Logging.EnableDebug)
+	
+	// Configure capture organization scheme from storage config
+	captureConfig := capture.DefaultCaptureConfig()
+	// Only set organization scheme if storage config exists and is not empty
+	if cfg.Storage.OrganizationScheme != "" {
+		captureConfig.OrganizationScheme = cfg.Storage.OrganizationScheme
+	}
+	captureManager.SetConfig(captureConfig)
+	
 	if err := captureManager.Initialize(); err != nil {
 		return nil, err
 	}
 	relayer.SetCaptureHandler(captureManager)
 
+	// Initialize structured logger
+	logger, err := logging.NewLogger(cfg.Logging.ConsoleLevel, cfg.Logging.LogFile)
+	if err != nil {
+		return nil, err
+	}
+
+	// Configure log rotation if max file size is specified
+	if cfg.Logging.MaxFileSize > 0 {
+		logger.SetMaxFileSize(cfg.Logging.MaxFileSize)
+	}
+
+	// Initialize feature logger if configured
+	if cfg.Logging.FeatureLogs != nil && cfg.Logging.FeatureLogs.Enabled {
+		// Convert config to simple map
+		logConfigs := make(map[string]bool)
+		for name, config := range cfg.Logging.FeatureLogs.Logs {
+			logConfigs[name] = config.Enabled
+		}
+		
+		featureLogger, err := logging.NewFeatureLogger(
+			cfg.Logging.FeatureLogs.Enabled,
+			cfg.Logging.FeatureLogs.MaxFileSizeMB,
+			"logs", // Same directory as main logs
+			logConfigs,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to initialize feature logger: %w", err)
+		}
+		
+		logger.SetFeatureLogger(featureLogger)
+		
+		// Set up certificate logging callback
+		certManager.SetCertLogger(func(action, domain string, duration time.Duration, status string, extra map[string]interface{}) {
+			featureLogger.LogCertificate(action, domain, duration, status, extra)
+		})
+	}
+
+	// Set up relay debug logging to use file-only verbose logging
+	relayer.SetDebugLogger(logger.Verbose)
+
 	server := &Server{
 		config:           cfg,
 		filterManager:    filterManager,
 		stats:            stats,
+		logger:           logger,
 		bufferPool:       bufferPool,
 		connectionPool:   connectionPool,
 		workerPool:       workerPool,
@@ -200,6 +278,7 @@ func NewServer(cfg *config.Config, filterManager *filter.Manager) (*Server, erro
 		captureManager:   captureManager,
 		logFile:          logFile,
 		shutdownCh:       make(chan struct{}),
+		configReloadCh:   make(chan struct{}, 1),
 	}
 
 	return server, nil
@@ -217,15 +296,15 @@ func (s *Server) Start() error {
 	// Start TLS session cache if enabled
 	if s.config.Performance.TLSSessionCache.Enabled {
 		// Session cache starts automatically in NewSessionCache
-		log.Printf("TLS session cache enabled with %d max sessions", s.config.Performance.TLSSessionCache.MaxSessions)
+		s.logger.Info("TLS session cache enabled with %d max sessions", s.config.Performance.TLSSessionCache.MaxSessions)
 	}
 
 	// Start certificate pre-generation if enabled
 	if s.config.Performance.CertPreGeneration.Enabled {
 		if err := s.certPreGenMgr.Start(); err != nil {
-			log.Printf("Failed to start certificate pre-generation: %v", err)
+			s.logger.Critical("Failed to start certificate pre-generation: %v", err)
 		} else {
-			log.Printf("Certificate pre-generation started")
+			s.logger.Info("Certificate pre-generation started")
 		}
 	}
 
@@ -236,7 +315,7 @@ func (s *Server) Start() error {
 	}
 	s.httpListener = httpListener
 
-	log.Printf("Proxy server listening on %s", s.config.Proxy.ListenAddr)
+	s.logger.Info("Proxy server listening on %s", s.config.Proxy.ListenAddr)
 
 	// Start statistics reporting
 	go s.reportStats()
@@ -258,28 +337,28 @@ func (s *Server) Stop() error {
 	// Stop worker pool
 	if s.workerPool != nil && s.config.Performance.WorkerPool.Enabled {
 		if err := s.workerPool.Stop(10 * time.Second); err != nil {
-			log.Printf("Worker pool stop error: %v", err)
+			s.logger.Verbose("Worker pool stop error: %v", err)
 		}
 	}
 
 	// Stop certificate pre-generation
 	if s.certPreGenMgr != nil && s.config.Performance.CertPreGeneration.Enabled {
 		if err := s.certPreGenMgr.Stop(); err != nil {
-			log.Printf("Certificate pre-generation stop error: %v", err)
+			s.logger.Verbose("Certificate pre-generation stop error: %v", err)
 		}
 	}
 
 	// Close connection pool
 	if s.connectionPool != nil {
 		if err := s.connectionPool.Close(); err != nil {
-			log.Printf("Connection pool close error: %v", err)
+			s.logger.Verbose("Connection pool close error: %v", err)
 		}
 	}
 
 	// Clear TLS session cache
 	if s.tlsSessionCache != nil {
 		cleared := s.tlsSessionCache.Clear()
-		log.Printf("Cleared %d TLS sessions", cleared)
+		s.logger.Info("Cleared %d TLS sessions", cleared)
 	}
 
 	if s.httpListener != nil {
@@ -295,7 +374,7 @@ func (s *Server) Stop() error {
 		_ = s.certManager.Shutdown()
 	}
 
-	log.Println("Proxy server stopped")
+	s.logger.Shutdown("Proxy server stopped")
 	return nil
 }
 
@@ -308,7 +387,7 @@ func (s *Server) acceptConnections(listener net.Listener) {
 			case <-s.shutdownCh:
 				return
 			default:
-				log.Printf("Accept error: %v", err)
+				s.logger.Verbose("Accept error: %v", err)
 				continue
 			}
 		}
@@ -326,7 +405,7 @@ func (s *Server) acceptConnectionsWithWorkerPool(listener net.Listener) {
 			case <-s.shutdownCh:
 				return
 			default:
-				log.Printf("Accept error: %v", err)
+				s.logger.Verbose("Accept error: %v", err)
 				continue
 			}
 		}
@@ -334,7 +413,7 @@ func (s *Server) acceptConnectionsWithWorkerPool(listener net.Listener) {
 		// Submit connection to worker pool
 		handler := &connectionHandler{server: s}
 		if err := s.workerPool.SubmitConnection(conn, handler); err != nil {
-			log.Printf("Failed to submit connection to worker pool: %v", err)
+			s.logger.Verbose("Failed to submit connection to worker pool: %v", err)
 			conn.Close()
 		}
 	}
@@ -356,12 +435,19 @@ func (s *Server) handleConnection(clientConn net.Conn) {
 	defer clientConn.Close()
 	s.stats.IncrementActive()
 	defer s.stats.DecrementActive()
-
-	// Create connection info
+	
+	// Create connection info with correlation ID
+	correlationID := logging.GenerateCorrelationID()
 	info := &relay.ConnectionInfo{
-		ClientIP:  clientConn.RemoteAddr().String(),
-		StartTime: time.Now(),
+		ClientIP:      clientConn.RemoteAddr().String(),
+		StartTime:     time.Now(),
+		CorrelationID: correlationID,
 	}
+
+	// Log connection initiation with structured logging
+	s.logger.DebugStructured(correlationID, "New connection initiated",
+		"client_ip", info.ClientIP,
+	)
 
 	// Read initial data to determine protocol using enhanced buffer pool
 	pooledBuffer := s.bufferPool.NewPooledBuffer(pool.SmallBuffer)
@@ -370,7 +456,7 @@ func (s *Server) handleConnection(clientConn net.Conn) {
 	buffer := pooledBuffer.Slice(1024)
 	n, err := clientConn.Read(buffer)
 	if err != nil {
-		log.Printf("Failed to read initial data: %v", err)
+		s.logger.Verbose("Failed to read initial data: %v", err)
 		return
 	}
 
@@ -378,10 +464,22 @@ func (s *Server) handleConnection(clientConn net.Conn) {
 
 	// Detect protocol and extract connection information
 	if protocol.IsHTTPRequest(data) {
+		s.logger.DebugStructured(correlationID, "Protocol detected",
+			"protocol", "HTTP",
+			"client_ip", info.ClientIP,
+		)
 		s.handleHTTPConnection(clientConn, data, info)
 	} else if protocol.IsTLSHandshake(data) {
+		s.logger.DebugStructured(correlationID, "Protocol detected",
+			"protocol", "TLS",
+			"client_ip", info.ClientIP,
+		)
 		s.handleTLSConnection(clientConn, data, info)
 	} else {
+		s.logger.DebugStructured(correlationID, "Protocol detected",
+			"protocol", "Unknown",
+			"client_ip", info.ClientIP,
+		)
 		s.handleUnknownConnection(clientConn, data, info)
 	}
 }
@@ -397,7 +495,7 @@ func (s *Server) handleHTTPConnection(clientConn net.Conn, data []byte, info *re
 	// Extract host for regular HTTP requests
 	host, serverAddr := s.extractHostAndServerAddr(data)
 	if host == "" {
-		log.Printf("Failed to extract host from HTTP request")
+		s.logger.Verbose("Failed to extract host from HTTP request")
 		return
 	}
 
@@ -422,20 +520,48 @@ func (s *Server) handleHTTPConnection(clientConn net.Conn, data []byte, info *re
 
 	decision, err := s.filterManager.ProcessPacket(ctx, filterCtx)
 	if err != nil {
-		log.Printf("Filter error: %v", err)
+		s.logger.Verbose("Filter error: %v", err)
 		return
 	}
 
 	switch decision.Result {
 	case filter.FilterBlock:
-		log.Printf("Blocked HTTP connection: %s -> %s", info.ClientIP, info.Domain)
+		s.logger.InfoStructured(info.CorrelationID, "Connection blocked by filter",
+			"client_ip", info.ClientIP,
+			"domain", info.Domain,
+			"reason", decision.Reason,
+		)
+		// Log to filtering.log
+		if featureLogger := s.logger.GetFeatureLogger(); featureLogger != nil {
+			featureLogger.LogFiltering(info.CorrelationID, info.Domain, info.ClientIP, "blocked", "domain_inspection", decision.Reason)
+		}
 		return
 	case filter.FilterBypass:
+		s.logger.DebugStructured(info.CorrelationID, "Connection bypassed",
+			"domain", info.Domain,
+			"reason", decision.Reason,
+		)
+		// Log to filtering.log
+		if featureLogger := s.logger.GetFeatureLogger(); featureLogger != nil {
+			featureLogger.LogFiltering(info.CorrelationID, info.Domain, info.ClientIP, "allowed", "domain_inspection", decision.Reason)
+		}
 		_ = s.relayer.HandleHTTPRelay(clientConn, data, info, false)
 	case filter.FilterInspect, filter.FilterCapture:
 		s.stats.IncrementInspected()
+		s.logger.DebugStructured(info.CorrelationID, "Connection marked for inspection",
+			"domain", info.Domain,
+			"action", decision.Result.String(),
+			"reason", decision.Reason,
+		)
+		// Log to filtering.log
+		if featureLogger := s.logger.GetFeatureLogger(); featureLogger != nil {
+			featureLogger.LogFiltering(info.CorrelationID, info.Domain, info.ClientIP, "allowed", "domain_inspection", decision.Reason)
+		}
 		_ = s.relayer.HandleHTTPRelay(clientConn, data, info, true)
 	default:
+		s.logger.DebugStructured(info.CorrelationID, "Connection using default handling",
+			"domain", info.Domain,
+		)
 		_ = s.relayer.HandleHTTPRelay(clientConn, data, info, false)
 	}
 
@@ -448,9 +574,16 @@ func (s *Server) handleTLSConnection(clientConn net.Conn, data []byte, info *rel
 	// Extract SNI from TLS handshake
 	sni := protocol.ExtractSNI(data)
 	if sni == "" {
-		log.Printf("Failed to extract SNI from TLS handshake")
+		s.logger.DebugStructured(info.CorrelationID, "Failed to extract SNI from TLS handshake",
+			"client_ip", info.ClientIP,
+		)
 		return
 	}
+
+	s.logger.DebugStructured(info.CorrelationID, "SNI extracted from TLS handshake",
+		"domain", sni,
+		"client_ip", info.ClientIP,
+	)
 
 	info.Domain = sni
 	info.ServerAddr = sni + ":443"
@@ -473,21 +606,49 @@ func (s *Server) handleTLSConnection(clientConn net.Conn, data []byte, info *rel
 
 	decision, err := s.filterManager.ProcessPacket(ctx, filterCtx)
 	if err != nil {
-		log.Printf("Filter error: %v", err)
+		s.logger.Verbose("Filter error: %v", err)
 		return
 	}
 
 	switch decision.Result {
 	case filter.FilterBlock:
-		log.Printf("Blocked HTTPS connection: %s -> %s", info.ClientIP, info.Domain)
+		s.logger.InfoStructured(info.CorrelationID, "HTTPS connection blocked by filter",
+			"client_ip", info.ClientIP,
+			"domain", info.Domain,
+			"reason", decision.Reason,
+		)
+		// Log to filtering.log
+		if featureLogger := s.logger.GetFeatureLogger(); featureLogger != nil {
+			featureLogger.LogFiltering(info.CorrelationID, info.Domain, info.ClientIP, "blocked", "sni_sniff", decision.Reason)
+		}
 		return
 	case filter.FilterBypass:
+		s.logger.DebugStructured(info.CorrelationID, "HTTPS connection bypassed",
+			"domain", info.Domain,
+			"reason", decision.Reason,
+		)
+		// Log to filtering.log
+		if featureLogger := s.logger.GetFeatureLogger(); featureLogger != nil {
+			featureLogger.LogFiltering(info.CorrelationID, info.Domain, info.ClientIP, "allowed", "sni_sniff", decision.Reason)
+		}
 		_ = s.relayer.HandleTransparentRelay(clientConn, data, info)
 	case filter.FilterInspect, filter.FilterCapture:
 		s.stats.IncrementInspected()
+		s.logger.DebugStructured(info.CorrelationID, "HTTPS connection marked for inspection",
+			"domain", info.Domain,
+			"action", decision.Result.String(),
+			"reason", decision.Reason,
+		)
+		// Log to filtering.log
+		if featureLogger := s.logger.GetFeatureLogger(); featureLogger != nil {
+			featureLogger.LogFiltering(info.CorrelationID, info.Domain, info.ClientIP, "allowed", "sni_sniff", decision.Reason)
+		}
 		// Filter manager already decided - perform HTTPS inspection
 		_ = s.relayer.HandleHTTPSInspection(clientConn, info.ServerAddr, info)
 	default:
+		s.logger.DebugStructured(info.CorrelationID, "HTTPS connection using transparent relay",
+			"domain", info.Domain,
+		)
 		_ = s.relayer.HandleTransparentRelay(clientConn, data, info)
 	}
 
@@ -501,7 +662,7 @@ func (s *Server) handleUnknownConnection(_ net.Conn, _ []byte, info *relay.Conne
 
 	// For unknown protocols, try to extract destination from transparent proxy
 	// This is a simplified approach - real implementation would use SO_ORIGINAL_DST
-	log.Printf("Unknown protocol from %s, closing connection", info.ClientIP)
+	s.logger.Verbose("Unknown protocol from %s, closing connection", info.ClientIP)
 }
 
 // handleCONNECTRequest handles HTTP CONNECT requests for HTTPS proxy tunneling
@@ -509,22 +670,28 @@ func (s *Server) handleCONNECTRequest(clientConn net.Conn, data []byte, info *re
 	// Parse CONNECT request
 	lines := bytes.Split(data, []byte("\r\n"))
 	if len(lines) == 0 {
-		log.Printf("Invalid CONNECT request")
+		s.logger.Debug("Invalid CONNECT request")
 		return
 	}
 
 	requestLine := string(lines[0])
 	parts := strings.Fields(requestLine)
 	if len(parts) < 2 {
-		log.Printf("Invalid CONNECT request line: %s", requestLine)
+		s.logger.Debug("Invalid CONNECT request line: %s", requestLine)
 		return
 	}
 
-	target := parts[1] // e.g., "mail.google.com:443"
+	target := normalizeTarget(parts[1]) // e.g., "mail.google.com:443" or "[::1]:443"
 
 	// Extract domain without port for filtering
 	host := target
-	if colonIdx := strings.LastIndex(target, ":"); colonIdx != -1 {
+	if strings.HasPrefix(target, "[") {
+		// IPv6 case: [2001:db8::1]:443
+		if closeBracket := strings.Index(target, "]"); closeBracket > 0 {
+			host = target[1:closeBracket] // Extract IPv6 address without brackets
+		}
+	} else if colonIdx := strings.LastIndex(target, ":"); colonIdx != -1 {
+		// IPv4 case: example.com:443
 		host = target[:colonIdx]
 	}
 
@@ -549,13 +716,13 @@ func (s *Server) handleCONNECTRequest(clientConn net.Conn, data []byte, info *re
 
 	decision, err := s.filterManager.ProcessPacket(ctx, filterCtx)
 	if err != nil {
-		log.Printf("Filter error: %v", err)
+		s.logger.Verbose("Filter error: %v", err)
 		return
 	}
 
 	switch decision.Result {
 	case filter.FilterBlock:
-		log.Printf("Blocked HTTPS connection: %s -> %s", info.ClientIP, info.Domain)
+		s.logger.Info("Blocked HTTPS connection: %s -> %s", info.ClientIP, info.Domain)
 		// Send error response
 		_, _ = clientConn.Write([]byte("HTTP/1.1 403 Forbidden\r\n\r\n"))
 		return
@@ -583,7 +750,7 @@ func (s *Server) handleTransparentTunnel(clientConn net.Conn, target string, _ *
 	// Connect to target server
 	serverConn, err := net.Dial("tcp", target)
 	if err != nil {
-		log.Printf("Failed to connect to %s: %v", target, err)
+		s.logger.Verbose("Failed to connect to %s: %v", target, err)
 		_, _ = clientConn.Write([]byte("HTTP/1.1 502 Bad Gateway\r\n\r\n"))
 		return
 	}
@@ -592,7 +759,7 @@ func (s *Server) handleTransparentTunnel(clientConn net.Conn, target string, _ *
 	// Send 200 Connection established
 	_, err = clientConn.Write([]byte("HTTP/1.1 200 Connection established\r\n\r\n"))
 	if err != nil {
-		log.Printf("Failed to send CONNECT response: %v", err)
+		s.logger.Verbose("Failed to send CONNECT response: %v", err)
 		return
 	}
 
@@ -606,7 +773,7 @@ func (s *Server) handleMITMTunnel(clientConn net.Conn, target string, info *rela
 	// Send 200 Connection established to make client think tunnel is ready
 	_, err := clientConn.Write([]byte("HTTP/1.1 200 Connection established\r\n\r\n"))
 	if err != nil {
-		log.Printf("Failed to send CONNECT response: %v", err)
+		s.logger.Verbose("Failed to send CONNECT response: %v", err)
 		return
 	}
 
@@ -628,7 +795,7 @@ func (s *Server) copyData(dst, src net.Conn, direction string) {
 
 	_, err := io.CopyBuffer(dst, src, pooledBuffer.Bytes())
 	if err != nil && !strings.Contains(err.Error(), "use of closed network connection") {
-		log.Printf("Error copying data (%s): %v", direction, err)
+		s.logger.Verbose("Error copying data (%s): %v", direction, err)
 	}
 }
 
@@ -655,30 +822,52 @@ func (s *Server) extractHostAndServerAddr(data []byte) (string, string) {
 	return host, host + ":80"
 }
 
-// logConnection logs connection information
+// logConnection logs connection information using structured logging
 func (s *Server) logConnection(info *relay.ConnectionInfo) {
 	duration := time.Since(info.StartTime)
-	logEntry := "[" + time.Now().Format("2006-01-02 15:04:05.000") + "] " +
-		info.ClientIP + " -> " + info.ServerAddr + " (" + info.Domain + ") | " +
-		duration.String() + " | " +
-		strconv.FormatInt(info.BytesRead, 10) + "/" + strconv.FormatInt(info.BytesWritten, 10) + " bytes | " +
-		info.Protocol + " | inspected=" +
-		func() string {
-			if info.BytesRead > 0 || info.BytesWritten > 0 {
-				return "true"
-			}
-			return "false"
-		}()
+	isInspected := "false"
+	if info.BytesRead > 0 || info.BytesWritten > 0 {
+		isInspected = "true"
+	}
 
-	// Write to log file
-	if s.logFile != nil {
-		_, _ = s.logFile.WriteString(logEntry + "\n")
+	// Use structured logging with correlation ID
+	s.logger.InfoStructured(info.CorrelationID, "Connection completed",
+		"client_ip", info.ClientIP,
+		"server_addr", info.ServerAddr,
+		"domain", info.Domain,
+		"protocol", info.Protocol,
+		"duration_ms", strconv.FormatInt(duration.Milliseconds(), 10),
+		"bytes_read", strconv.FormatInt(info.BytesRead, 10),
+		"bytes_written", strconv.FormatInt(info.BytesWritten, 10),
+		"inspected", isInspected,
+	)
+	
+	// Log to performance.log if duration is significant or slow
+	if featureLogger := s.logger.GetFeatureLogger(); featureLogger != nil {
+		durationMs := duration.Milliseconds()
+		if durationMs > 100 { // Log requests taking longer than 100ms
+			extra := map[string]interface{}{
+				"domain":    info.Domain,
+				"client_ip": info.ClientIP,
+				"bytes_read": info.BytesRead,
+				"bytes_written": info.BytesWritten,
+				"threshold": "100ms",
+			}
+			featureLogger.LogPerformance("request_duration", fmt.Sprintf("%dms", durationMs), extra)
+		}
 	}
 }
 
 // reportStats periodically reports statistics
 func (s *Server) reportStats() {
-	ticker := time.NewTicker(30 * time.Second)
+	// Parse initial status interval from config
+	statusInterval, err := time.ParseDuration(s.config.Logging.StatusInterval)
+	if err != nil {
+		s.logger.Critical("Invalid status interval '%s', using default 30s: %v", s.config.Logging.StatusInterval, err)
+		statusInterval = 30 * time.Second
+	}
+
+	ticker := time.NewTicker(statusInterval)
 	defer ticker.Stop()
 
 	for {
@@ -688,8 +877,8 @@ func (s *Server) reportStats() {
 			captureStats := s.captureManager.GetStats()
 			certStats := s.certManager.GetStats()
 
-			// Enhanced statistics reporting
-			log.Printf("Proxy Stats: %d total, %d active, %d inspected | Capture: %d requests, %d responses, %d pairs | Certs: %d generated, %d cached",
+			// Enhanced statistics reporting - only to file (verbose)
+			s.logger.Verbose("Proxy Stats: %d total, %d active, %d inspected | Capture: %d requests, %d responses, %d pairs | Certs: %d generated, %d cached",
 				proxyStats.TotalConnections,
 				proxyStats.ActiveConnections,
 				proxyStats.InspectedConnections,
@@ -699,11 +888,19 @@ func (s *Server) reportStats() {
 				certStats.GeneratedCerts,
 				certStats.CachedCerts,
 			)
+			
+			// Log key performance metrics to performance.log
+			if featureLogger := s.logger.GetFeatureLogger(); featureLogger != nil {
+				featureLogger.LogPerformance("active_connections", proxyStats.ActiveConnections, 
+					map[string]interface{}{"component": "proxy"})
+				featureLogger.LogPerformance("cert_cache_size", certStats.CachedCerts, 
+					map[string]interface{}{"component": "cert_cache"})
+			}
 
-			// Connection pool stats
+			// Connection pool stats - file only (verbose)
 			if s.connectionPool != nil {
 				poolStats := s.connectionPool.GetStats()
-				log.Printf("Connection Pool: %d pools, %d total conns, %d active, %d idle | Hits: %d, Misses: %d, Hit Rate: %.1f%%",
+				s.logger.Verbose("Connection Pool: %d pools, %d total conns, %d active, %d idle | Hits: %d, Misses: %d, Hit Rate: %.1f%%",
 					poolStats.TotalPools,
 					poolStats.TotalConnections,
 					poolStats.ActiveConnections,
@@ -712,12 +909,18 @@ func (s *Server) reportStats() {
 					poolStats.PoolMisses,
 					float64(poolStats.PoolHits)*100/float64(poolStats.PoolHits+poolStats.PoolMisses+1),
 				)
+				
+				// Log connection pool metrics to performance.log
+				if featureLogger := s.logger.GetFeatureLogger(); featureLogger != nil {
+					featureLogger.LogPerformance("connection_pool_size", poolStats.TotalConnections, 
+						map[string]interface{}{"component": "connection_pool", "max_size": s.config.Performance.ConnectionPool.MaxPoolSize})
+				}
 			}
 
-			// Worker pool stats
+			// Worker pool stats - file only (verbose)
 			if s.workerPool != nil && s.config.Performance.WorkerPool.Enabled {
 				workerStats := s.workerPool.GetStats()
-				log.Printf("Worker Pool: %d active, %d idle, %d queued | Processed: %d, Failed: %d, Avg Latency: %dms",
+				s.logger.Verbose("Worker Pool: %d active, %d idle, %d queued | Processed: %d, Failed: %d, Avg Latency: %dms",
 					workerStats.ActiveWorkers,
 					workerStats.IdleWorkers,
 					workerStats.CurrentQueueLen,
@@ -727,10 +930,10 @@ func (s *Server) reportStats() {
 				)
 			}
 
-			// TLS session cache stats
+			// TLS session cache stats - file only (verbose)
 			if s.tlsSessionCache != nil && s.config.Performance.TLSSessionCache.Enabled {
 				sessionStats := s.tlsSessionCache.GetStats()
-				log.Printf("TLS Sessions: %d active, %d hits, %d misses | Resumption Rate: %.1f%%",
+				s.logger.Verbose("TLS Sessions: %d active, %d hits, %d misses | Resumption Rate: %.1f%%",
 					sessionStats.ActiveSessions,
 					sessionStats.SessionHits,
 					sessionStats.SessionMisses,
@@ -738,10 +941,10 @@ func (s *Server) reportStats() {
 				)
 			}
 
-			// Certificate pre-generation stats
+			// Certificate pre-generation stats - file only (verbose)
 			if s.certPreGenMgr != nil && s.config.Performance.CertPreGeneration.Enabled {
 				preGenStats := s.certPreGenMgr.GetStats()
-				log.Printf("Cert PreGen: %d generated, %d queued, %d popular domains | Utilization: %.1f%%",
+				s.logger.Verbose("Cert PreGen: %d generated, %d queued, %d popular domains | Utilization: %.1f%%",
 					preGenStats.TotalPreGenerated,
 					preGenStats.QueuedDomains,
 					preGenStats.PopularDomainCount,
@@ -749,12 +952,26 @@ func (s *Server) reportStats() {
 				)
 			}
 
-			// Buffer pool efficiency
+			// Buffer pool efficiency - file only (verbose)
 			if s.bufferPool != nil {
 				efficiency := s.bufferPool.GetEfficiency()
 				if overall, ok := efficiency["overall_reuse_rate"]; ok {
-					log.Printf("Buffer Pool: %.1f%% reuse rate", overall*100)
+					s.logger.Verbose("Buffer Pool: %.1f%% reuse rate", overall*100)
 				}
+			}
+
+		case <-s.configReloadCh:
+			// Config changed, update ticker interval
+			newInterval, err := time.ParseDuration(s.config.Logging.StatusInterval)
+			if err != nil {
+				s.logger.Critical("Invalid status interval '%s', keeping current: %v", s.config.Logging.StatusInterval, err)
+				continue
+			}
+			if newInterval != statusInterval {
+				statusInterval = newInterval
+				ticker.Stop()
+				ticker = time.NewTicker(statusInterval)
+				s.logger.Info("Status interval updated to %s", statusInterval)
 			}
 
 		case <-s.shutdownCh:
@@ -802,7 +1019,7 @@ func (s *Server) GetStats() map[string]interface{} {
 
 // ReloadConfig reloads the server configuration
 func (s *Server) ReloadConfig(newConfig *config.Config) error {
-	log.Printf("Reloading server configuration...")
+	s.logger.Config("Reloading server configuration...")
 
 	// Update configuration
 	oldConfig := s.config
@@ -816,7 +1033,7 @@ func (s *Server) ReloadConfig(newConfig *config.Config) error {
 	// Update filter manager if rules changed
 	if s.rulesChanged(oldConfig.Rules, newConfig.Rules) {
 		if err := s.reloadFilterManager(newConfig); err != nil {
-			log.Printf("Failed to reload filter manager: %v", err)
+			s.logger.Critical("Failed to reload filter manager: %v", err)
 			// Revert config on failure
 			s.config = oldConfig
 			return err
@@ -826,7 +1043,7 @@ func (s *Server) ReloadConfig(newConfig *config.Config) error {
 	// Update certificate manager if TLS settings changed
 	if oldConfig.TLS != newConfig.TLS {
 		if err := s.reloadCertificateManager(newConfig); err != nil {
-			log.Printf("Failed to reload certificate manager: %v", err)
+			s.logger.Critical("Failed to reload certificate manager: %v", err)
 			// Revert config on failure
 			s.config = oldConfig
 			return err
@@ -836,14 +1053,21 @@ func (s *Server) ReloadConfig(newConfig *config.Config) error {
 	// Update capture manager if logging settings changed
 	if oldConfig.Logging.CaptureDir != newConfig.Logging.CaptureDir {
 		if err := s.reloadCaptureManager(newConfig); err != nil {
-			log.Printf("Failed to reload capture manager: %v", err)
+			s.logger.Critical("Failed to reload capture manager: %v", err)
 			// Revert config on failure
 			s.config = oldConfig
 			return err
 		}
 	}
 
-	log.Printf("Server configuration reloaded successfully")
+	// Signal the stats reporter to update its interval
+	select {
+	case s.configReloadCh <- struct{}{}:
+	default:
+		// Channel buffer full, skip (non-blocking)
+	}
+
+	s.logger.Config("Server configuration reloaded successfully")
 	return nil
 }
 
@@ -903,6 +1127,15 @@ func (s *Server) reloadCertificateManager(cfg *config.Config) error {
 func (s *Server) reloadCaptureManager(cfg *config.Config) error {
 	// Create new capture manager
 	newCaptureManager := capture.NewCaptureManager(cfg.Logging.CaptureDir, cfg.Logging.EnableDebug)
+	
+	// Configure capture organization scheme from storage config
+	captureConfig := capture.DefaultCaptureConfig()
+	// Only set organization scheme if storage config exists and is not empty
+	if cfg.Storage.OrganizationScheme != "" {
+		captureConfig.OrganizationScheme = cfg.Storage.OrganizationScheme
+	}
+	newCaptureManager.SetConfig(captureConfig)
+	
 	if err := newCaptureManager.Initialize(); err != nil {
 		return err
 	}
