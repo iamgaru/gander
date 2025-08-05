@@ -42,6 +42,11 @@ func (cm *DefaultCertManager) SetTLSSessionCache(cache *tlsopt.SessionCache) {
 	cm.tlsConfigBuilder = tlsopt.NewTLSConfigBuilder(cache, cm.enableDebug)
 }
 
+// SetCertLogger sets the certificate logging callback
+func (cm *DefaultCertManager) SetCertLogger(logFunc CertLogFunc) {
+	cm.logFunc = logFunc
+}
+
 // Initialize initializes the certificate manager
 func (cm *DefaultCertManager) Initialize(config *CertConfig) error {
 	cm.config = config
@@ -149,6 +154,10 @@ func (cm *DefaultCertManager) GetCertificate(domain string) (*Certificate, error
 		if time.Now().Before(cert.ExpiresAt) {
 			cm.cacheMutex.RUnlock()
 			cm.stats.IncrementCacheHit()
+			// Log cache hit
+			if cm.logFunc != nil {
+				cm.logFunc("cache_hit", domain, 0, "success", nil)
+			}
 			return cert, nil
 		}
 		// Certificate expired
@@ -159,11 +168,19 @@ func (cm *DefaultCertManager) GetCertificate(domain string) (*Certificate, error
 		cm.stats.ExpiredCerts++
 		cm.stats.mutex.Unlock()
 		cm.cacheMutex.Unlock()
+		// Log expiration
+		if cm.logFunc != nil {
+			cm.logFunc("expire", domain, 0, "success", map[string]interface{}{"reason": "expired"})
+		}
 	} else {
 		cm.cacheMutex.RUnlock()
 	}
 
 	cm.stats.IncrementCacheMiss()
+	// Log cache miss
+	if cm.logFunc != nil {
+		cm.logFunc("cache_miss", domain, 0, "success", nil)
+	}
 
 	// Generate new certificate
 	var upstreamInfo *UpstreamCertInfo
@@ -175,9 +192,21 @@ func (cm *DefaultCertManager) GetCertificate(domain string) (*Certificate, error
 		// Upstream cert sniff failures logged to file only
 	}
 
+	start := time.Now()
 	cert, err := cm.GenerateCertificate(domain, upstreamInfo)
+	duration := time.Since(start)
+	
 	if err != nil {
+		// Log generation failure
+		if cm.logFunc != nil {
+			cm.logFunc("generate", domain, duration, "error", map[string]interface{}{"error": err.Error()})
+		}
 		return nil, err
+	}
+	
+	// Log successful generation
+	if cm.logFunc != nil {
+		cm.logFunc("generate", domain, duration, "success", nil)
 	}
 
 	// Cache the certificate

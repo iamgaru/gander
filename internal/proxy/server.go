@@ -3,6 +3,7 @@ package proxy
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"io"
 	"net"
 	"os"
@@ -231,6 +232,32 @@ func NewServer(cfg *config.Config, filterManager *filter.Manager) (*Server, erro
 	// Configure log rotation if max file size is specified
 	if cfg.Logging.MaxFileSize > 0 {
 		logger.SetMaxFileSize(cfg.Logging.MaxFileSize)
+	}
+
+	// Initialize feature logger if configured
+	if cfg.Logging.FeatureLogs != nil && cfg.Logging.FeatureLogs.Enabled {
+		// Convert config to simple map
+		logConfigs := make(map[string]bool)
+		for name, config := range cfg.Logging.FeatureLogs.Logs {
+			logConfigs[name] = config.Enabled
+		}
+		
+		featureLogger, err := logging.NewFeatureLogger(
+			cfg.Logging.FeatureLogs.Enabled,
+			cfg.Logging.FeatureLogs.MaxFileSizeMB,
+			"logs", // Same directory as main logs
+			logConfigs,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to initialize feature logger: %w", err)
+		}
+		
+		logger.SetFeatureLogger(featureLogger)
+		
+		// Set up certificate logging callback
+		certManager.SetCertLogger(func(action, domain string, duration time.Duration, status string, extra map[string]interface{}) {
+			featureLogger.LogCertificate(action, domain, duration, status, extra)
+		})
 	}
 
 	// Set up relay debug logging to use file-only verbose logging
@@ -504,12 +531,20 @@ func (s *Server) handleHTTPConnection(clientConn net.Conn, data []byte, info *re
 			"domain", info.Domain,
 			"reason", decision.Reason,
 		)
+		// Log to filtering.log
+		if featureLogger := s.logger.GetFeatureLogger(); featureLogger != nil {
+			featureLogger.LogFiltering(info.CorrelationID, info.Domain, info.ClientIP, "blocked", "domain_inspection", decision.Reason)
+		}
 		return
 	case filter.FilterBypass:
 		s.logger.DebugStructured(info.CorrelationID, "Connection bypassed",
 			"domain", info.Domain,
 			"reason", decision.Reason,
 		)
+		// Log to filtering.log
+		if featureLogger := s.logger.GetFeatureLogger(); featureLogger != nil {
+			featureLogger.LogFiltering(info.CorrelationID, info.Domain, info.ClientIP, "allowed", "domain_inspection", decision.Reason)
+		}
 		_ = s.relayer.HandleHTTPRelay(clientConn, data, info, false)
 	case filter.FilterInspect, filter.FilterCapture:
 		s.stats.IncrementInspected()
@@ -518,6 +553,10 @@ func (s *Server) handleHTTPConnection(clientConn net.Conn, data []byte, info *re
 			"action", decision.Result.String(),
 			"reason", decision.Reason,
 		)
+		// Log to filtering.log
+		if featureLogger := s.logger.GetFeatureLogger(); featureLogger != nil {
+			featureLogger.LogFiltering(info.CorrelationID, info.Domain, info.ClientIP, "allowed", "domain_inspection", decision.Reason)
+		}
 		_ = s.relayer.HandleHTTPRelay(clientConn, data, info, true)
 	default:
 		s.logger.DebugStructured(info.CorrelationID, "Connection using default handling",
@@ -578,12 +617,20 @@ func (s *Server) handleTLSConnection(clientConn net.Conn, data []byte, info *rel
 			"domain", info.Domain,
 			"reason", decision.Reason,
 		)
+		// Log to filtering.log
+		if featureLogger := s.logger.GetFeatureLogger(); featureLogger != nil {
+			featureLogger.LogFiltering(info.CorrelationID, info.Domain, info.ClientIP, "blocked", "sni_sniff", decision.Reason)
+		}
 		return
 	case filter.FilterBypass:
 		s.logger.DebugStructured(info.CorrelationID, "HTTPS connection bypassed",
 			"domain", info.Domain,
 			"reason", decision.Reason,
 		)
+		// Log to filtering.log
+		if featureLogger := s.logger.GetFeatureLogger(); featureLogger != nil {
+			featureLogger.LogFiltering(info.CorrelationID, info.Domain, info.ClientIP, "allowed", "sni_sniff", decision.Reason)
+		}
 		_ = s.relayer.HandleTransparentRelay(clientConn, data, info)
 	case filter.FilterInspect, filter.FilterCapture:
 		s.stats.IncrementInspected()
@@ -592,6 +639,10 @@ func (s *Server) handleTLSConnection(clientConn net.Conn, data []byte, info *rel
 			"action", decision.Result.String(),
 			"reason", decision.Reason,
 		)
+		// Log to filtering.log
+		if featureLogger := s.logger.GetFeatureLogger(); featureLogger != nil {
+			featureLogger.LogFiltering(info.CorrelationID, info.Domain, info.ClientIP, "allowed", "sni_sniff", decision.Reason)
+		}
 		// Filter manager already decided - perform HTTPS inspection
 		_ = s.relayer.HandleHTTPSInspection(clientConn, info.ServerAddr, info)
 	default:
@@ -790,6 +841,21 @@ func (s *Server) logConnection(info *relay.ConnectionInfo) {
 		"bytes_written", strconv.FormatInt(info.BytesWritten, 10),
 		"inspected", isInspected,
 	)
+	
+	// Log to performance.log if duration is significant or slow
+	if featureLogger := s.logger.GetFeatureLogger(); featureLogger != nil {
+		durationMs := duration.Milliseconds()
+		if durationMs > 100 { // Log requests taking longer than 100ms
+			extra := map[string]interface{}{
+				"domain":    info.Domain,
+				"client_ip": info.ClientIP,
+				"bytes_read": info.BytesRead,
+				"bytes_written": info.BytesWritten,
+				"threshold": "100ms",
+			}
+			featureLogger.LogPerformance("request_duration", fmt.Sprintf("%dms", durationMs), extra)
+		}
+	}
 }
 
 // reportStats periodically reports statistics
@@ -822,6 +888,14 @@ func (s *Server) reportStats() {
 				certStats.GeneratedCerts,
 				certStats.CachedCerts,
 			)
+			
+			// Log key performance metrics to performance.log
+			if featureLogger := s.logger.GetFeatureLogger(); featureLogger != nil {
+				featureLogger.LogPerformance("active_connections", proxyStats.ActiveConnections, 
+					map[string]interface{}{"component": "proxy"})
+				featureLogger.LogPerformance("cert_cache_size", certStats.CachedCerts, 
+					map[string]interface{}{"component": "cert_cache"})
+			}
 
 			// Connection pool stats - file only (verbose)
 			if s.connectionPool != nil {
@@ -835,6 +909,12 @@ func (s *Server) reportStats() {
 					poolStats.PoolMisses,
 					float64(poolStats.PoolHits)*100/float64(poolStats.PoolHits+poolStats.PoolMisses+1),
 				)
+				
+				// Log connection pool metrics to performance.log
+				if featureLogger := s.logger.GetFeatureLogger(); featureLogger != nil {
+					featureLogger.LogPerformance("connection_pool_size", poolStats.TotalConnections, 
+						map[string]interface{}{"component": "connection_pool", "max_size": s.config.Performance.ConnectionPool.MaxPoolSize})
+				}
 			}
 
 			// Worker pool stats - file only (verbose)

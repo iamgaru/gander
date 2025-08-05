@@ -34,12 +34,28 @@ type ProxyConfig struct {
 
 // LoggingConfig contains logging settings
 type LoggingConfig struct {
-	LogFile        string `json:"log_file"`
-	CaptureDir     string `json:"capture_dir"`
-	MaxFileSize    int64  `json:"max_file_size_mb"`
-	EnableDebug    bool   `json:"enable_debug"`
-	ConsoleLevel   string `json:"console_level"`   // minimal, normal, debug
-	StatusInterval string `json:"status_interval"` // e.g., "1m", "30s"
+	LogFile        string                             `json:"log_file"`
+	CaptureDir     string                             `json:"capture_dir"`
+	MaxFileSize    int64                              `json:"max_file_size_mb"`
+	EnableDebug    bool                               `json:"enable_debug"`
+	ConsoleLevel   string                             `json:"console_level"`   // minimal, normal, debug
+	StatusInterval string                             `json:"status_interval"` // e.g., "1m", "30s"
+	FeatureLogs    *FeatureLogsConfig                 `json:"feature_logs,omitempty"`
+}
+
+// FeatureLogConfig holds configuration for individual feature logs
+type FeatureLogConfig struct {
+	Enabled bool   `json:"enabled"`
+	Level   string `json:"level"`
+}
+
+// FeatureLogsConfig holds configuration for all feature logs
+type FeatureLogsConfig struct {
+	Enabled         bool                        `json:"enabled"`
+	MaxFileSizeMB   int64                       `json:"max_file_size_mb"`
+	MaxFiles        int                         `json:"max_files"`
+	Compression     bool                        `json:"compression"`
+	Logs            map[string]FeatureLogConfig `json:"logs"`
 }
 
 // TLSConfig contains TLS/certificate settings

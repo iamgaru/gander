@@ -23,12 +23,13 @@ const (
 
 // Logger provides structured logging with level control
 type Logger struct {
-	consoleLevel LogLevel
-	fileLogger   *log.Logger
-	consoleLog   *log.Logger
-	fileOutput   io.Writer
-	logFilePath  string
-	maxFileSize  int64 // in bytes
+	consoleLevel  LogLevel
+	fileLogger    *log.Logger
+	consoleLog    *log.Logger
+	fileOutput    io.Writer
+	logFilePath   string
+	maxFileSize   int64 // in bytes
+	featureLogger FeatureLogger
 }
 
 // NewLogger creates a new logger with the specified console level and file output
@@ -86,6 +87,11 @@ func (l *Logger) Critical(format string, args ...interface{}) {
 	
 	// Also log to file if available
 	l.rotatableWrite(fmt.Sprintf("CRITICAL: %s", msg))
+	
+	// Log to errors.log via feature logger
+	if l.featureLogger != nil {
+		l.featureLogger.LogError("critical", "proxy", msg, nil)
+	}
 }
 
 // Info logs informational messages (shown on normal and debug levels)
@@ -175,14 +181,37 @@ func (l *Logger) SetLevel(consoleLevelStr string) {
 	l.consoleLevel = parseLogLevel(consoleLevelStr)
 }
 
+// SetFeatureLogger sets the feature logger for this logger instance
+func (l *Logger) SetFeatureLogger(featureLogger FeatureLogger) {
+	l.featureLogger = featureLogger
+}
+
+// GetFeatureLogger returns the feature logger instance
+func (l *Logger) GetFeatureLogger() FeatureLogger {
+	return l.featureLogger
+}
+
 // Close closes the file logger if open
 func (l *Logger) Close() error {
-	if l.fileOutput != nil {
-		if closer, ok := l.fileOutput.(io.Closer); ok {
-			return closer.Close()
+	var lastErr error
+	
+	// Close feature logger if available
+	if l.featureLogger != nil {
+		if err := l.featureLogger.Close(); err != nil {
+			lastErr = err
 		}
 	}
-	return nil
+	
+	// Close main file logger
+	if l.fileOutput != nil {
+		if closer, ok := l.fileOutput.(io.Closer); ok {
+			if err := closer.Close(); err != nil {
+				lastErr = err
+			}
+		}
+	}
+	
+	return lastErr
 }
 
 // GenerateCorrelationID generates a unique correlation ID for request tracking

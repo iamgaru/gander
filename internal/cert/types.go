@@ -21,6 +21,9 @@ type Certificate struct {
 	IsCA       bool
 }
 
+// CertLogFunc is a callback function for certificate logging
+type CertLogFunc func(action, domain string, duration time.Duration, status string, extra map[string]interface{})
+
 // CertificateManager manages certificate generation, caching, and validation
 type CertificateManager struct {
 	// Cache for generated certificates
@@ -38,6 +41,9 @@ type CertificateManager struct {
 
 	// Statistics
 	stats *CertStats
+	
+	// Logging callback
+	logFunc CertLogFunc
 }
 
 // CertConfig holds certificate configuration
