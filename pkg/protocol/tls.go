@@ -158,3 +158,129 @@ func IsTLSData(data []byte) bool {
 
 	return false
 }
+
+// ExtractALPN extracts the Application Layer Protocol Negotiation from TLS ClientHello
+func ExtractALPN(data []byte) []string {
+	if len(data) < 6 {
+		return nil
+	}
+
+	// Check for TLS handshake (0x16) and ClientHello (0x01)
+	if data[0] != 0x16 || len(data) < 43 {
+		return nil
+	}
+
+	// Skip TLS record header (5 bytes) and handshake header (4 bytes)
+	pos := 9
+
+	// Skip version (2 bytes)
+	pos += 2
+
+	// Skip random (32 bytes)
+	pos += 32
+
+	if pos >= len(data) {
+		return nil
+	}
+
+	// Skip session ID
+	sessionIDLen := int(data[pos])
+	pos += 1 + sessionIDLen
+
+	if pos+2 >= len(data) {
+		return nil
+	}
+
+	// Skip cipher suites
+	cipherSuitesLen := int(binary.BigEndian.Uint16(data[pos : pos+2]))
+	pos += 2 + cipherSuitesLen
+
+	if pos+1 >= len(data) {
+		return nil
+	}
+
+	// Skip compression methods
+	compressionMethodsLen := int(data[pos])
+	pos += 1 + compressionMethodsLen
+
+	if pos+2 >= len(data) {
+		return nil
+	}
+
+	// Extensions length
+	extensionsLen := int(binary.BigEndian.Uint16(data[pos : pos+2]))
+	pos += 2
+
+	if pos+extensionsLen > len(data) {
+		return nil
+	}
+
+	// Parse extensions
+	extensionsEnd := pos + extensionsLen
+	for pos < extensionsEnd {
+		if pos+4 > extensionsEnd {
+			break
+		}
+
+		extensionType := binary.BigEndian.Uint16(data[pos : pos+2])
+		extensionLen := int(binary.BigEndian.Uint16(data[pos+2 : pos+4]))
+		pos += 4
+
+		if pos+extensionLen > extensionsEnd {
+			break
+		}
+
+		// Check for ALPN extension (type 0x0010)
+		if extensionType == 0x0010 {
+			return parseALPNExtension(data[pos : pos+extensionLen])
+		}
+
+		pos += extensionLen
+	}
+
+	return nil
+}
+
+// parseALPNExtension parses the ALPN extension data
+func parseALPNExtension(data []byte) []string {
+	if len(data) < 2 {
+		return nil
+	}
+
+	var protocols []string
+	listLen := int(binary.BigEndian.Uint16(data[0:2]))
+	pos := 2
+
+	if pos+listLen > len(data) {
+		return nil
+	}
+
+	for pos < 2+listLen {
+		if pos >= len(data) {
+			break
+		}
+
+		protoLen := int(data[pos])
+		pos++
+
+		if pos+protoLen > len(data) {
+			break
+		}
+
+		protocol := string(data[pos : pos+protoLen])
+		protocols = append(protocols, protocol)
+		pos += protoLen
+	}
+
+	return protocols
+}
+
+// SupportsHTTP2 checks if ALPN includes HTTP/2 support
+func SupportsHTTP2(protocols []string) bool {
+	for _, proto := range protocols {
+		if proto == "h2" || proto == "h2c" {
+			return true
+		}
+	}
+	return false
+}

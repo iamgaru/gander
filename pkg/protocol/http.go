@@ -240,3 +240,67 @@ func IsHTTPResponse(data []byte) bool {
 		bytes.HasPrefix(data, []byte("HTTP/1.1 ")) ||
 		bytes.HasPrefix(data, []byte("HTTP/2 "))
 }
+
+// IsWebSocketUpgrade checks if the HTTP request is a WebSocket upgrade request
+func IsWebSocketUpgrade(data []byte) bool {
+	if !IsHTTPRequest(data) {
+		return false
+	}
+
+	dataStr := strings.ToLower(string(data))
+	
+	// Check for WebSocket upgrade headers
+	return strings.Contains(dataStr, "upgrade: websocket") &&
+		strings.Contains(dataStr, "connection: upgrade") &&
+		strings.Contains(dataStr, "sec-websocket-key:")
+}
+
+// IsHTTP2Connection checks if this might be an HTTP/2 connection
+func IsHTTP2Connection(data []byte) bool {
+	// HTTP/2 connection preface: "PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n"
+	http2Preface := []byte("PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n")
+	
+	if len(data) >= len(http2Preface) {
+		return bytes.HasPrefix(data, http2Preface)
+	}
+	
+	// Also check for HTTP/1.1 requests with HTTP/2 upgrade
+	if IsHTTPRequest(data) {
+		dataStr := strings.ToLower(string(data))
+		return strings.Contains(dataStr, "upgrade: h2c") ||
+			strings.Contains(dataStr, "http2-settings:")
+	}
+	
+	return false
+}
+
+// ExtractWebSocketKey extracts the WebSocket key from the request
+func ExtractWebSocketKey(data []byte) string {
+	reader := bufio.NewReader(bytes.NewReader(data))
+
+	// Skip request line
+	_, _, err := reader.ReadLine()
+	if err != nil {
+		return ""
+	}
+
+	// Read headers
+	for {
+		line, _, err := reader.ReadLine()
+		if err != nil || len(line) == 0 {
+			break
+		}
+
+		headerLine := string(line)
+		if colonIdx := strings.Index(headerLine, ":"); colonIdx != -1 {
+			key := strings.TrimSpace(strings.ToLower(headerLine[:colonIdx]))
+			value := strings.TrimSpace(headerLine[colonIdx+1:])
+
+			if key == "sec-websocket-key" {
+				return value
+			}
+		}
+	}
+
+	return ""
+}

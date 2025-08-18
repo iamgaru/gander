@@ -15,7 +15,7 @@
     "console_level": "minimal",
     "status_interval": "60s",
     "feature_logs": {
-      "enabled": true,
+      "enabled": false,
       "max_file_size_mb": 50,
       "max_files": 10,
       "compression": false,

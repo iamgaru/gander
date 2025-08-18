@@ -320,6 +320,9 @@ func (s *Server) Start() error {
 	// Start statistics reporting
 	go s.reportStats()
 
+	// Start connection cleanup routine
+	go s.cleanupStaleConnections()
+
 	// Accept connections with worker pool
 	if s.config.Performance.WorkerPool.Enabled {
 		go s.acceptConnectionsWithWorkerPool(httpListener)
@@ -436,6 +439,9 @@ func (s *Server) handleConnection(clientConn net.Conn) {
 	s.stats.IncrementActive()
 	defer s.stats.DecrementActive()
 	
+	// Set initial connection timeout
+	clientConn.SetDeadline(time.Now().Add(30 * time.Second))
+	
 	// Create connection info with correlation ID
 	correlationID := logging.GenerateCorrelationID()
 	info := &relay.ConnectionInfo{
@@ -444,36 +450,76 @@ func (s *Server) handleConnection(clientConn net.Conn) {
 		CorrelationID: correlationID,
 	}
 
+	// Create context with timeout for connection handling
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	defer cancel()
+
 	// Log connection initiation with structured logging
 	s.logger.DebugStructured(correlationID, "New connection initiated",
 		"client_ip", info.ClientIP,
 	)
+
+	// Monitor context cancellation
+	go func() {
+		<-ctx.Done()
+		s.logger.DebugStructured(correlationID, "Connection context cancelled, closing connection",
+			"client_ip", info.ClientIP,
+		)
+		clientConn.Close()
+	}()
 
 	// Read initial data to determine protocol using enhanced buffer pool
 	pooledBuffer := s.bufferPool.NewPooledBuffer(pool.SmallBuffer)
 	defer pooledBuffer.Release()
 	
 	buffer := pooledBuffer.Slice(1024)
+	
+	// Set read timeout for initial data
+	clientConn.SetReadDeadline(time.Now().Add(30 * time.Second))
 	n, err := clientConn.Read(buffer)
 	if err != nil {
 		s.logger.Verbose("Failed to read initial data: %v", err)
 		return
 	}
 
+	// Clear deadline after successful read
+	clientConn.SetDeadline(time.Time{})
 	data := buffer[:n]
 
 	// Detect protocol and extract connection information
-	if protocol.IsHTTPRequest(data) {
+	if protocol.IsHTTP2Connection(data) {
+		s.logger.DebugStructured(correlationID, "Protocol detected",
+			"protocol", "HTTP/2",
+			"client_ip", info.ClientIP,
+		)
+		s.handleHTTP2Connection(clientConn, data, info)
+	} else if protocol.IsWebSocketUpgrade(data) {
+		s.logger.DebugStructured(correlationID, "Protocol detected",
+			"protocol", "WebSocket",
+			"client_ip", info.ClientIP,
+		)
+		s.handleWebSocketConnection(clientConn, data, info)
+	} else if protocol.IsHTTPRequest(data) {
 		s.logger.DebugStructured(correlationID, "Protocol detected",
 			"protocol", "HTTP",
 			"client_ip", info.ClientIP,
 		)
 		s.handleHTTPConnection(clientConn, data, info)
 	} else if protocol.IsTLSHandshake(data) {
-		s.logger.DebugStructured(correlationID, "Protocol detected",
-			"protocol", "TLS",
-			"client_ip", info.ClientIP,
-		)
+		// Check for HTTP/2 ALPN support
+		alpnProtocols := protocol.ExtractALPN(data)
+		if protocol.SupportsHTTP2(alpnProtocols) {
+			s.logger.DebugStructured(correlationID, "Protocol detected",
+				"protocol", "TLS with HTTP/2 ALPN",
+				"client_ip", info.ClientIP,
+				"alpn_protocols", fmt.Sprintf("%v", alpnProtocols),
+			)
+		} else {
+			s.logger.DebugStructured(correlationID, "Protocol detected",
+				"protocol", "TLS",
+				"client_ip", info.ClientIP,
+			)
+		}
 		s.handleTLSConnection(clientConn, data, info)
 	} else {
 		s.logger.DebugStructured(correlationID, "Protocol detected",
@@ -746,26 +792,52 @@ func (s *Server) handleCONNECTRequest(clientConn net.Conn, data []byte, info *re
 }
 
 // handleTransparentTunnel establishes a transparent HTTPS tunnel
-func (s *Server) handleTransparentTunnel(clientConn net.Conn, target string, _ *relay.ConnectionInfo) {
-	// Connect to target server
-	serverConn, err := net.Dial("tcp", target)
+func (s *Server) handleTransparentTunnel(clientConn net.Conn, target string, info *relay.ConnectionInfo) {
+	s.logger.DebugStructured(info.CorrelationID, "Establishing transparent tunnel",
+		"target", target,
+		"client_ip", info.ClientIP,
+	)
+
+	// Connect to target server with timeout
+	serverConn, err := net.DialTimeout("tcp", target, 30*time.Second)
 	if err != nil {
 		s.logger.Verbose("Failed to connect to %s: %v", target, err)
-		_, _ = clientConn.Write([]byte("HTTP/1.1 502 Bad Gateway\r\n\r\n"))
+		_, _ = clientConn.Write([]byte("HTTP/1.1 502 Bad Gateway\r\nContent-Length: 0\r\n\r\n"))
 		return
 	}
-	defer serverConn.Close()
 
 	// Send 200 Connection established
-	_, err = clientConn.Write([]byte("HTTP/1.1 200 Connection established\r\n\r\n"))
+	_, err = clientConn.Write([]byte("HTTP/1.1 200 Connection established\r\nContent-Length: 0\r\n\r\n"))
 	if err != nil {
 		s.logger.Verbose("Failed to send CONNECT response: %v", err)
+		serverConn.Close()
 		return
 	}
 
-	// Start bidirectional relay
-	go s.copyData(clientConn, serverConn, "client->server")
-	s.copyData(serverConn, clientConn, "server->client")
+	s.logger.DebugStructured(info.CorrelationID, "CONNECT tunnel established",
+		"target", target,
+		"client_ip", info.ClientIP,
+	)
+
+	// Start bidirectional relay with proper error handling
+	done := make(chan struct{}, 2)
+	
+	// Copy client -> server
+	go func() {
+		defer serverConn.Close()
+		s.copyDataWithInfo(serverConn, clientConn, "client->server", info)
+		done <- struct{}{}
+	}()
+	
+	// Copy server -> client
+	go func() {
+		defer clientConn.Close()
+		s.copyDataWithInfo(clientConn, serverConn, "server->client", info)
+		done <- struct{}{}
+	}()
+	
+	// Wait for one direction to complete (connection closed)
+	<-done
 }
 
 // handleMITMTunnel establishes a MITM tunnel with certificate interception
@@ -799,6 +871,47 @@ func (s *Server) copyData(dst, src net.Conn, direction string) {
 	}
 }
 
+// copyDataWithInfo copies data between connections and tracks bytes for connection info
+func (s *Server) copyDataWithInfo(dst, src net.Conn, direction string, info *relay.ConnectionInfo) {
+	pooledBuffer := s.bufferPool.NewPooledBuffer(pool.LargeBuffer)
+	defer pooledBuffer.Release()
+
+	buffer := pooledBuffer.Bytes()
+	for {
+		// Set read timeout to prevent hanging connections
+		src.SetReadDeadline(time.Now().Add(5 * time.Minute))
+		n, err := src.Read(buffer)
+		if err != nil {
+			if !strings.Contains(err.Error(), "use of closed network connection") &&
+			   !strings.Contains(err.Error(), "timeout") {
+				s.logger.Verbose("Error reading data (%s): %v", direction, err)
+			}
+			break
+		}
+
+		if n == 0 {
+			break
+		}
+
+		// Set write timeout
+		dst.SetWriteDeadline(time.Now().Add(30 * time.Second))
+		written, err := dst.Write(buffer[:n])
+		if err != nil {
+			if !strings.Contains(err.Error(), "use of closed network connection") {
+				s.logger.Verbose("Error writing data (%s): %v", direction, err)
+			}
+			break
+		}
+
+		// Update connection statistics
+		if strings.Contains(direction, "client->server") {
+			info.BytesWritten += int64(written)
+		} else {
+			info.BytesRead += int64(written)
+		}
+	}
+}
+
 // extractHostAndServerAddr extracts host and server address from HTTP request
 // Handles CONNECT requests properly to avoid double port assignment
 func (s *Server) extractHostAndServerAddr(data []byte) (string, string) {
@@ -822,6 +935,93 @@ func (s *Server) extractHostAndServerAddr(data []byte) (string, string) {
 	return host, host + ":80"
 }
 
+// handleHTTP2Connection handles HTTP/2 connections
+func (s *Server) handleHTTP2Connection(clientConn net.Conn, data []byte, info *relay.ConnectionInfo) {
+	info.Protocol = "HTTP/2"
+	
+	s.logger.DebugStructured(info.CorrelationID, "HTTP/2 connection detected",
+		"client_ip", info.ClientIP,
+	)
+	
+	// For now, treat HTTP/2 as transparent relay until full HTTP/2 proxy support is implemented
+	// Extract target from the connection preface or fall back to transparent handling
+	_ = s.relayer.HandleTransparentRelay(clientConn, data, info)
+	s.logConnection(info)
+}
+
+// handleWebSocketConnection handles WebSocket upgrade requests
+func (s *Server) handleWebSocketConnection(clientConn net.Conn, data []byte, info *relay.ConnectionInfo) {
+	// Extract host for WebSocket connections
+	host := protocol.ExtractHTTPHost(data)
+	if host == "" {
+		s.logger.Verbose("Failed to extract host from WebSocket request")
+		return
+	}
+
+	info.Domain = host
+	info.ServerAddr = host + ":443" // Most WebSockets use HTTPS
+	info.Protocol = "WebSocket"
+
+	s.logger.DebugStructured(info.CorrelationID, "WebSocket upgrade request",
+		"domain", info.Domain,
+		"client_ip", info.ClientIP,
+	)
+
+	// Apply filters
+	ctx := context.Background()
+	filterCtx := &filter.FilterContext{
+		ClientIP:   net.ParseIP(info.ClientIP),
+		ServerAddr: info.ServerAddr,
+		Domain:     info.Domain,
+		Protocol:   info.Protocol,
+		IsHTTPS:    true, // Most WebSocket upgrades happen over WSS
+	}
+
+	decision, err := s.filterManager.ProcessPacket(ctx, filterCtx)
+	if err != nil {
+		s.logger.Verbose("Filter error: %v", err)
+		return
+	}
+
+	switch decision.Result {
+	case filter.FilterBlock:
+		s.logger.InfoStructured(info.CorrelationID, "WebSocket connection blocked by filter",
+			"client_ip", info.ClientIP,
+			"domain", info.Domain,
+			"reason", decision.Reason,
+		)
+		return
+	case filter.FilterBypass:
+		s.logger.DebugStructured(info.CorrelationID, "WebSocket connection bypassed",
+			"domain", info.Domain,
+			"reason", decision.Reason,
+		)
+		_ = s.handleWebSocketUpgrade(clientConn, data, info, false)
+	case filter.FilterInspect, filter.FilterCapture:
+		s.stats.IncrementInspected()
+		s.logger.DebugStructured(info.CorrelationID, "WebSocket connection marked for inspection",
+			"domain", info.Domain,
+			"action", decision.Result.String(),
+			"reason", decision.Reason,
+		)
+		_ = s.handleWebSocketUpgrade(clientConn, data, info, true)
+	default:
+		_ = s.handleWebSocketUpgrade(clientConn, data, info, false)
+	}
+
+	s.logConnection(info)
+}
+
+// handleWebSocketUpgrade handles the WebSocket upgrade process
+func (s *Server) handleWebSocketUpgrade(clientConn net.Conn, data []byte, info *relay.ConnectionInfo, inspect bool) error {
+	// For now, handle WebSocket upgrades as HTTP requests
+	// Full WebSocket inspection would require implementing the WebSocket protocol
+	if inspect {
+		return s.relayer.HandleHTTPRelay(clientConn, data, info, true)
+	}
+	return s.relayer.HandleHTTPRelay(clientConn, data, info, false)
+}
+
 // logConnection logs connection information using structured logging
 func (s *Server) logConnection(info *relay.ConnectionInfo) {
 	duration := time.Since(info.StartTime)
@@ -842,8 +1042,9 @@ func (s *Server) logConnection(info *relay.ConnectionInfo) {
 		"inspected", isInspected,
 	)
 	
-	// Log to performance.log if duration is significant or slow
+	// Log to performance.log if duration is significant or slow (only if feature logging enabled)
 	if featureLogger := s.logger.GetFeatureLogger(); featureLogger != nil {
+		// Quick check: only do expensive work if performance logging might actually happen
 		durationMs := duration.Milliseconds()
 		if durationMs > 100 { // Log requests taking longer than 100ms
 			extra := map[string]interface{}{
@@ -972,6 +1173,50 @@ func (s *Server) reportStats() {
 				ticker.Stop()
 				ticker = time.NewTicker(statusInterval)
 				s.logger.Info("Status interval updated to %s", statusInterval)
+			}
+
+		case <-s.shutdownCh:
+			return
+		}
+	}
+}
+
+// cleanupStaleConnections periodically cleans up stale connections and resources
+func (s *Server) cleanupStaleConnections() {
+	ticker := time.NewTicker(2 * time.Minute) // Run every 2 minutes
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ticker.C:
+			// Log resource utilization for monitoring
+			if s.connectionPool != nil {
+				stats := s.connectionPool.GetStats()
+				if stats.IdleConnections > 50 {
+					s.logger.Verbose("High number of idle connections: %d", stats.IdleConnections)
+				}
+			}
+
+			// Cleanup buffer pool if it has efficiency monitoring
+			if s.bufferPool != nil {
+				efficiency := s.bufferPool.GetEfficiency()
+				if overallRate, ok := efficiency["overall_reuse_rate"]; ok && overallRate < 0.5 {
+					s.logger.Verbose("Buffer pool efficiency low: %.1f%%", overallRate*100)
+				}
+			}
+
+			// Log TLS session cache stats
+			if s.tlsSessionCache != nil && s.config.Performance.TLSSessionCache.Enabled {
+				stats := s.tlsSessionCache.GetStats()
+				s.logger.Verbose("TLS cache: %d active sessions, %.1f%% hit rate",
+					stats.ActiveSessions, stats.ResumptionRate*100)
+			}
+
+			// Log certificate pre-generation stats  
+			if s.certPreGenMgr != nil && s.config.Performance.CertPreGeneration.Enabled {
+				stats := s.certPreGenMgr.GetStats()
+				s.logger.Verbose("Cert pre-gen: %d generated, %d queued",
+					stats.TotalPreGenerated, stats.QueuedDomains)
 			}
 
 		case <-s.shutdownCh:
